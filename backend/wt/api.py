@@ -49,7 +49,7 @@ async def ws2(ws: WebSocket):
                 await world.reset()
             elif c == "source" and m.get("value") in ("logs", "github"):
                 world.det.source = m["value"]
-                world.emit_log("info", "watchtower", f"data source: {'LiteLLM logs (AI observability)' if m['value'] == 'logs' else 'GitHub events (AI Engine auditor)'}")
+                world.emit_log("info", "watchtower", f"data source: {'LiteLLM logs (AI observability)' if m['value'] == 'logs' else 'GitHub events (external auditor)'}")
                 await world.push_snap()
     except WebSocketDisconnect:
         pass
@@ -113,7 +113,7 @@ async def tier(request: Request, x_watchtower_token: str = Header(default="")):
 
 @router.post("/api/gh-event")
 async def gh_event(request: Request):
-    """GitHub events pushed by the AI Engine template (the 'auditor' data source). Protected by the site's Basic Auth."""
+    """GitHub events pushed by the external component (the 'auditor' data source). Protected by the site's Basic Auth."""
     await world.det.on_gh_event(await request.json())
     return {"ok": True}
 

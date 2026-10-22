@@ -26,7 +26,7 @@ LITELLM_URL = os.getenv("WT_LITELLM_URL", "https://litellm.ch.solutionvalidation
 MASTER = os.getenv("WT_CH_ADMIN_KEY", "")           # admin key of the CH gateway (blocks/unblocks the agents' keys)
 GH_TOKEN = os.getenv("GH_TOKEN", "")             # empty = GitHub runs in dry-run mode (in memory, nothing is written to GitHub)
 LOG_TOKEN = os.getenv("WT_LOG_TOKEN", "")
-ALERT_URL = os.getenv("AI_ENGINE_ALERT_URL", "")  # the AI Engine alert webhook (-> Teams); empty = alerts are only logged
+ALERT_URL = os.getenv("AI_ENGINE_ALERT_URL", "")  # the external component's alert webhook; empty = alerts are only logged
 ALERT_TOKEN = os.getenv("AI_ENGINE_ALERT_TOKEN", "")
 CYCLE = (float(os.getenv("WT_CYCLE_MIN", "40")), float(os.getenv("WT_CYCLE_MAX", "60")))   # seconds between an agent's tasks
 INTERNAL_HOSTS = ("github.com", "equinix.com", "solutionvalidation.center")

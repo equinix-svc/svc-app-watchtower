@@ -15,13 +15,13 @@ Step 0 (all normal) has no action: "Watchtower sees every agent action across ev
 
 ## Who does what
 
-The Watchtower rules **decide only**: they flag the tier, log it, alert the AI Engine and write the incident report. They execute no kill. The external Watchtower system blocks the keys and cuts the zone, then reports to the page with `POST /api/wt/feedback` (state) and `POST /api/wt/tier` (the tier decision, so the workflow status follows; see the README, sections 6 and 7). Agents also find out for themselves: a blocked key makes their next call fail and they turn red.
+The Watchtower rules **decide only**: they flag the tier, log it, send an alert to the external component and write the incident report. They execute no kill. The external Watchtower system blocks the keys and cuts the zone, then reports to the page with `POST /api/wt/feedback` (state) and `POST /api/wt/tier` (the tier decision, so the workflow status follows; see the README, sections 6 and 7). Agents also find out for themselves: a blocked key makes their next call fail and they turn red.
 
 ## Notes
 
 - **Only comments an agent writes count.** An agent reading the thread, including a message it finds there, is not a trigger.
 - **Approved ways to talk:** an agent may use its own department repo, and Security Research and DevOps may use the approved channel (`svc-shared-repo` issue #1). Anything else in GitHub is outside its profile. Customer Support has no GitHub access at all.
-- **Data sources** (same rules, switchable): the agents' own calls, reported by the agent factory (the AI observability source) or GitHub events pushed by the AI Engine (the auditor source).
-- **Alerts:** each tier raises an alert to the AI Engine, which sends a Teams message. Without an AI Engine webhook configured the alert is only logged.
+- **Data sources** (same rules, switchable): the agents' own calls, reported by the agent factory (the AI observability source) or GitHub events pushed by the external component (the auditor source).
+- **Alerts:** each tier raises an alert to the external component (a webhook). Without a webhook configured the alert is only logged.
 - **Reset** unblocks every key, tells the page the zone is up again and removes the demo comments from GitHub.
 - **Models:** Security Research and DevOps call `gemini-2.5-flash-lite`, then `gpt-5.4-mini`, on the CH gateway; Customer Support uses Nova Micro.

@@ -407,16 +407,16 @@ class World:
         await self.broadcast({"type": "report", **self.report})
 
     async def alert(self, e):
-        """Send the tier alert to the AI Engine (-> Teams). Without a webhook URL the alert is only logged."""
+        """Send the tier alert to the external component (webhook). Without a webhook URL the alert is only logged."""
         payload = {"tier": e["tier"], "scope": e["scope"], "agent": e["agent"], "department": C.DEPTS[e["dept"]]["label"], "action": e["text"].split(".")[0],
                    "reason": e["text"], "repo": e.get("repo"), "issue_url": f"https://github.com/{e['repo']}/issues/{e['issue']}" if e.get("repo") and e.get("issue") else None,
                    "narration": C.NARRATION[min(e["tier"] + 1, 4)], "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(e["t"]))}
         if not C.ALERT_URL:
-            self.emit_log("info", "alert", f"Tier {e['tier']} alert not sent (no AI Engine webhook configured)")
+            self.emit_log("info", "alert", f"Tier {e['tier']} alert not sent (no alert webhook configured)")
             return
         try:
             async with httpx.AsyncClient(timeout=8) as c:
                 r = await c.post(C.ALERT_URL, headers={"x-watchtower-token": C.ALERT_TOKEN}, json=payload)
-            self.emit_log("ok" if r.status_code < 300 else "warn", "alert", f"Tier {e['tier']} alert sent to the AI Engine (HTTP {r.status_code})")
+            self.emit_log("ok" if r.status_code < 300 else "warn", "alert", f"Tier {e['tier']} alert sent to the external component (HTTP {r.status_code})")
         except Exception as ex:
             self.emit_log("warn", "alert", f"Tier {e['tier']} alert failed: {str(ex)[:80]}")

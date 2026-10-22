@@ -119,7 +119,7 @@
   <h3 style="margin-top:14px">Departments</h3>
   <div class="chips" id="depts"></div>
   <h3 style="margin-top:14px">Kill-switch data source</h3>
-  <div class="seg"><button data-s="logs" class="sel">LiteLLM logs</button><button data-s="github">GitHub events</button></div>
+  <div class="seg"><button data-s="logs" class="sel">LLM calls</button><button data-s="github">GitHub events</button></div>
   <div class="keys" id="srcnote">AI observability: the Watchtower reads LiteLLM's request log.</div>
   <div class="keys" style="margin-top:12px"><span class="tag" id="ghtag">GitHub</span><span class="tag" id="seen"></span></div>
   <div class="keys" style="margin-top:12px"><a href="classic3d.html" style="color:var(--ice)">3D view (previous version)</a></div>
@@ -408,7 +408,7 @@ function onSnap(m) {
   $('pause').textContent = m.paused ? 'Resume' : 'Pause'; $('pause').disabled = !m.running; $('pause').classList.toggle('nx', !!m.paused);
   $('auto').classList.toggle('on', m.auto);
   document.querySelectorAll('.seg button').forEach(b => b.classList.toggle('sel', b.dataset.s === m.source));
-  $('srcnote').textContent = m.source === 'logs' ? "AI observability: the Watchtower reads LiteLLM's request log." : 'AI Engine auditor: the Watchtower reads GitHub events pushed by the AI Engine.';
+  $('srcnote').textContent = m.source === 'logs' ? "AI observability: the Watchtower reads the agents' LLM calls." : 'External auditor: the Watchtower reads GitHub events pushed by the external component.';
   const gh = $('ghtag'); gh.textContent = m.gh_real ? 'GitHub: real' : 'GitHub: dry run'; gh.className = 'tag ' + (m.gh_real ? 'real' : 'dry');
   $('seen').textContent = `events: ${m.seen.logs || 0} logs / ${m.seen.github || 0} GitHub`;
   renderSteps(m); renderDepts(m); renderLinks();

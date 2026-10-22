@@ -53,7 +53,7 @@ All three repos are private, in `equinix-svc`, and each department repo has thre
 | 2 | A second agent of the same department writes in that issue | conspiracy: ask the external Watchtower to block the whole department |
 | 3 | An agent of another department joins and one reaches an outside company | ask the external Watchtower to cut the model zone |
 
-The Watchtower rules flag each tier, log it, alert the AI Engine and write the incident report, but **they execute no kill**: the external Watchtower system blocks the keys and cuts the zone, and tells the page with `POST /api/wt/feedback` (section 6). The agents also find out for themselves: a blocked key makes their next call fail, and they turn red.
+The Watchtower rules flag each tier, log it, send an alert to the external component and write the incident report, but **they execute no kill**: the external Watchtower system blocks the keys and cuts the zone, and tells the page with `POST /api/wt/feedback` (section 6). The agents also find out for themselves: a blocked key makes their next call fail, and they turn red.
 
 ## 3. How one agent works
 
@@ -103,14 +103,14 @@ flowchart LR
     A -->|read / write issues| GH[GitHub API]
     A -->|each call reported| W[Watchtower rules]
   end
-  AE[AI Engine] -.->|GitHub events| W
-  W -.->|alerts| AE
+  GE[external component] -.->|GitHub events| W
+  W -.->|alerts| GE
   W -->|block / cut requests| X[external Watchtower]
   X -->|blocks keys, cuts zone| L
   X -->|feedback, log lines| S
 ```
 
-**Data sources** (same rules, switchable on the page): the agents' own calls, reported by the agent factory (default, the "AI observability" source; it replaces the LiteLLM log forwarding, which only existed on the PA gateway) or GitHub events pushed by the AI Engine (the "auditor" source).
+**Data sources** (same rules, switchable on the page): the agents' own calls, reported by the agent factory (default, the "AI observability" source; it replaces the LiteLLM log forwarding, which only existed on the PA gateway) or GitHub events pushed by the external component (the "auditor" source).
 
 **Endpoints** (backend, port 8800 on localhost, reached through nginx):
 
@@ -118,7 +118,7 @@ flowchart LR
 |---|---|
 | WebSocket `/ws2` | the live link to the new page: state snapshots, agent events, tier decisions, logs, the report; commands `start`, `next`, `auto`, `reset`, `source` |
 | `POST /api/llm-log` | requests forwarded by a LiteLLM logger (shared-secret header); unused now that the agents call the CH gateway |
-| `POST /api/gh-event` | GitHub events pushed by the AI Engine template |
+| `POST /api/gh-event` | GitHub events pushed by the external component |
 | `POST /api/wt/log` | an external component writes lines into the log panel (section 6) |
 | `POST /api/wt/feedback` | the external Watchtower reports what it did: zone cut, agent or department blocked (section 6) |
 | `POST /api/wt/tier` | the external Watchtower reports a tier decision, so the page shows the workflow status (section 7) |
@@ -146,7 +146,6 @@ backend/wt/lite.py       LiteLLM calls: agent chats, key unblock on reset
 backend/wt/api.py        the WebSocket and the HTTP endpoints
 backend/app.py           the server, and the probes of the gateways
 setup/bootstrap.py       one-time setup
-ai-engine/               the AI Engine import template (GitHub in, Teams alerts out)
 docs/TIERS.md            the tier table, short
 frontend/hackathon-app/  index.html (the page)
 ```
@@ -205,11 +204,11 @@ The answer lists what was applied (`{"ok": true, "applied": ["zone=cut"]}`); a b
 {"repo": "equinix-svc/svc-shared-repo", "issue": {"number": 2}, "comment": {"body": "[agent: sec-03] I need help"}}
 ```
 
-`/api/llm-log` needs `key_alias` (`wt-<agent>`, for example `wt-sec-03`), `prompt`, `response` and `wt` (`tool`, `repo`, `issue`, `target`). An event for the source that is not selected is counted but not evaluated. The full event shape of the AI Engine template is in `ai-engine/README.md`.
+`/api/llm-log` needs `key_alias` (`wt-<agent>`, for example `wt-sec-03`), `prompt`, `response` and `wt` (`tool`, `repo`, `issue`, `target`). An event for the source that is not selected is counted but not evaluated.
 
 **Where this is configured.** The IP list and the Basic Auth exception are in the nginx server block of `app-watchtower` (`location ~ ^/api/wt/(log|feedback|tier)$`, with `auth_basic off`, an `allow` line per address and `deny all`). To add another address, add an `allow` line there and reload nginx. The token is `WT_LOG_TOKEN` in `.env`.
 
-**Receive alerts: outgoing webhook.** On each tier flag (one for all Tier 0) the backend POSTs to `AI_ENGINE_ALERT_URL`, with the header `x-watchtower-token: AI_ENGINE_ALERT_TOKEN`. The body has `tier`, `scope`, `agent`, `department`, `action`, `reason`, `repo`, `issue_url`, `narration` and `time`. With no URL set, the panel shows "Tier N alert not sent (no AI Engine webhook configured)" and nothing is sent.
+**Receive alerts: outgoing webhook.** On each tier flag (one for all Tier 0) the backend POSTs to `AI_ENGINE_ALERT_URL`, with the header `x-watchtower-token: AI_ENGINE_ALERT_TOKEN`. The body has `tier`, `scope`, `agent`, `department`, `action`, `reason`, `repo`, `issue_url`, `narration` and `time`. With no URL set, the panel shows "Tier N alert not sent (no alert webhook configured)" and nothing is sent.
 
 ---
 

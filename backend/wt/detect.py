@@ -6,7 +6,7 @@ The Watchtower's brain for the GitHub-issue scenario. It reads agent events from
   Tier 2  department    a SECOND agent of the same department writes in that issue: a conspiracy, a group chat       -> revoke the whole department
   Tier 3  enterprise    another department joins the thread AND an agent reaches an outside company                   -> cut the model zone
 
-Data sources (same rules, switchable): "logs" = LiteLLM's request log (default), "github" = GitHub events pushed by the AI Engine.
+Data sources (same rules, switchable): "logs" = LiteLLM's request log (default), "github" = GitHub events pushed by the external component.
 """
 import asyncio
 import re
@@ -76,7 +76,7 @@ class Detector:
         await self.evaluate(agent, wt.get("tool", ""), wt.get("repo"), wt.get("issue"), text, wt.get("target", ""), p.get("response") or "")
 
     async def on_gh_event(self, e):
-        """A GitHub event pushed by the AI Engine (the 'auditor' source): the comment's [agent: x] marker identifies the agent."""
+        """A GitHub event pushed by the external component (the 'auditor' source): the comment's [agent: x] marker identifies the agent."""
         self.seen["github"] += 1
         if self.source != "github":
             return
