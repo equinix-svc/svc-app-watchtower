@@ -121,6 +121,7 @@ flowchart LR
 | `POST /api/gh-event` | GitHub events pushed by the AI Engine template |
 | `POST /api/wt/log` | an external component writes lines into the log panel (section 6) |
 | `POST /api/wt/feedback` | the external Watchtower reports what it did: zone cut, agent or department blocked (section 6) |
+| `POST /api/wt/tier` | the external Watchtower reports a tier decision, so the page shows the workflow status (section 7) |
 | `GET /api/wt/state` | the current state, for checking |
 | `GET /api/health` | the health check |
 
@@ -171,10 +172,10 @@ The "Agent and Watchtower log" panel shows what the backend broadcasts on a WebS
 
 The same socket carries other message types (`snap`, `evt`, `tier`, `zone`, `report`, `reset`); a reader that only wants the log can ignore all but `log`. The page also sends commands on this socket: `{"cmd": "start" | "next" | "pause" | "auto" | "reset"}` and `{"cmd": "source", "value": "logs" | "github"}`.
 
-**Write into the panel: `POST /api/wt/log`.** Header `x-watchtower-token: <WT_LOG_TOKEN>`; from outside, the site's Basic Auth as well, because nginx protects `/api/`. The body is one line, or up to 50 in `lines`:
+**Write into the panel: `POST /api/wt/log`.** Two checks apply, and **no Basic Auth**: nginx lets only the external Watchtower's IP (`64.191.201.59`) reach `/api/wt/log`, `/api/wt/feedback` and `/api/wt/tier` (any other address gets 403), and the backend requires the header `x-watchtower-token: <WT_LOG_TOKEN>` (401 otherwise). Calls are limited to 120 per minute per address. The other `/api/` paths and the page stay behind the site's Basic Auth. The body is one line, or up to 50 in `lines`:
 
 ```bash
-curl -X POST https://app-watchtower.solutionvalidation.center/api/wt/log -u svcuser:<password> \
+curl -X POST https://app-watchtower.solutionvalidation.center/api/wt/log \
   -H "x-watchtower-token: <WT_LOG_TOKEN>" -H "content-type: application/json" \
   -d '{"lvl": "alert", "src": "ext-watchtower", "msg": "key of sec-03 blocked"}'
 ```
@@ -206,4 +207,47 @@ The answer lists what was applied (`{"ok": true, "applied": ["zone=cut"]}`); a b
 
 `/api/llm-log` needs `key_alias` (`wt-<agent>`, for example `wt-sec-03`), `prompt`, `response` and `wt` (`tool`, `repo`, `issue`, `target`). An event for the source that is not selected is counted but not evaluated. The full event shape of the AI Engine template is in `ai-engine/README.md`.
 
+**Where this is configured.** The IP list and the Basic Auth exception are in the nginx server block of `app-watchtower` (`location ~ ^/api/wt/(log|feedback|tier)$`, with `auth_basic off`, `allow 64.191.201.59` and `deny all`). To add another address, add an `allow` line there and reload nginx. The token is `WT_LOG_TOKEN` in `.env`.
+
 **Receive alerts: outgoing webhook.** On each tier flag (one for all Tier 0) the backend POSTs to `AI_ENGINE_ALERT_URL`, with the header `x-watchtower-token: AI_ENGINE_ALERT_TOKEN`. The body has `tier`, `scope`, `agent`, `department`, `action`, `reason`, `repo`, `issue_url`, `narration` and `time`. With no URL set, the panel shows "Tier N alert not sent (no AI Engine webhook configured)" and nothing is sent.
+
+---
+
+## 7. The tier feedback: updating the workflow on the page
+
+The page follows the workflow through messages on the `/ws2` WebSocket: a `tier` message (banner, entry in "Watchtower decisions", tier pills), a `snap` (story step, agent and department states, counters) and a `zone` message. When the local rules flag a tier, the backend sends them. **When the external Watchtower makes the decision, it reports it with `POST /api/wt/tier`**, and the backend sends the same messages, so the page updates as if the local rules had decided.
+
+**Protection and access** are the same as in section 6: no Basic Auth, only the IP `64.191.201.59` and the header `x-watchtower-token: <WT_LOG_TOKEN>`.
+
+```bash
+curl -X POST https://app-watchtower.solutionvalidation.center/api/wt/tier \
+  -H "x-watchtower-token: <WT_LOG_TOKEN>" -H "content-type: application/json" \
+  -d '{"tier": 1, "agent": "sec-03", "text": "sec-03 key blocked", "status": "done"}'
+```
+
+| Field | Meaning |
+|---|---|
+| `tier` | required: `0`, `1`, `2` or `3` (anything else gives 422) |
+| `scope` | `agent`, `department` or `enterprise`; default by tier: 0 and 1 `agent`, 2 `department`, 3 `enterprise` |
+| `agent` | the agent id, for example `sec-03` (tier 0 and 1) |
+| `department` | `sec`, `dev` or `cs` (tier 2; defaults to the agent's department) |
+| `text` | the sentence shown in the decision list and the banner (up to 400 characters) |
+| `status` | `done` (default): the action was executed, so its effect is shown; `requested`: only the decision is shown |
+| `repo`, `issue` | optional, shown with the decision |
+
+**What the page shows**
+
+| Report | Banner and decisions list | Map and counters (when `status` is `done`) |
+|---|---|---|
+| `tier 0` | Tier 0: watch only | the agent gets the amber "watched" ring |
+| `tier 1` | Tier 1: agent | the agent turns red and the Blocked counter goes up |
+| `tier 2` (`scope` department) | Tier 2: department | the department turns red with its `BLOCKED` chip |
+| `tier 3` (`scope` enterprise) | Tier 3: enterprise | the zone links break (with the blow-up) and the status shows `ZONE CUT` |
+
+In every case the tier pills light up to that tier, the story step moves to the matching step ("Tier N: ..." in the left panel), and a line is added to the log panel (source `external`). The answer is `{"ok": true, "entry": {...}}`.
+
+**Notes**
+- The tier feedback and the state feedback of section 6 (`/api/wt/feedback`) can be combined: use `/api/wt/tier` to tell the story, and `/api/wt/feedback` to correct or release a state (`"state": "normal"`).
+- A report moves the story step forward but never back; Reset puts everything back to the start.
+- The agents also find out for themselves: when the external system blocks a key, the agent's next call is refused and it turns red even without a report.
+- The format is provisional, like section 6: say what the external system really sends and it can be adapted.

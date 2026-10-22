@@ -98,6 +98,19 @@ async def feedback(request: Request, x_watchtower_token: str = Header(default=""
     return {"ok": True, "applied": done}
 
 
+@router.post("/api/wt/tier")
+async def tier(request: Request, x_watchtower_token: str = Header(default="")):
+    """The external Watchtower reports a tier decision: {"tier": 0-3, "scope": "agent|department|enterprise", "agent": "sec-03", "department": "sec", "text": "...", "status": "done|requested"}."""
+    _check(x_watchtower_token)
+    b = await request.json()
+    try:
+        if int(b.get("tier")) not in (0, 1, 2, 3):
+            raise ValueError
+    except (TypeError, ValueError):
+        raise HTTPException(422, "tier must be 0, 1, 2 or 3")
+    return {"ok": True, "entry": await world.apply_tier(b)}
+
+
 @router.post("/api/gh-event")
 async def gh_event(request: Request):
     """GitHub events pushed by the AI Engine template (the 'auditor' data source). Protected by the site's Basic Auth."""

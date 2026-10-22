@@ -15,7 +15,7 @@ Step 0 (all normal) has no action: "Watchtower sees every agent action across ev
 
 ## Who does what
 
-The Watchtower rules **decide only**: they flag the tier, log it, alert the AI Engine and write the incident report. They execute no kill. The external Watchtower system blocks the keys and cuts the zone, then reports to the page with `POST /api/wt/feedback` (see the README, section 6). Agents also find out for themselves: a blocked key makes their next call fail and they turn red.
+The Watchtower rules **decide only**: they flag the tier, log it, alert the AI Engine and write the incident report. They execute no kill. The external Watchtower system blocks the keys and cuts the zone, then reports to the page with `POST /api/wt/feedback` (state) and `POST /api/wt/tier` (the tier decision, so the workflow status follows; see the README, sections 6 and 7). Agents also find out for themselves: a blocked key makes their next call fail and they turn red.
 
 ## Notes
 

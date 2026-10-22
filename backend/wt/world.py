@@ -365,6 +365,32 @@ class World:
             await self.push_snap()
         return done
 
+    async def apply_tier(self, b):
+        """The external Watchtower reports a tier decision: it is shown as if the local rules had flagged it (banner, decisions list,
+        tier pills, story step) and, when status is "done", its effect is applied to the map. Returns the stored entry."""
+        tier = int(b["tier"])
+        scope = b.get("scope") or ["agent", "agent", "department", "enterprise"][tier]
+        agent = str(b.get("agent") or "")
+        dept = b.get("department") if b.get("department") in C.DEPTS else (agent.split("-")[0] if agent.split("-")[0] in C.DEPTS else "")
+        text = str(b.get("text") or f"Tier {tier} reported by the external Watchtower")[:400]
+        entry = {"t": time.time(), "tier": tier, "scope": scope, "agent": agent, "dept": dept, "text": text, "repo": b.get("repo"), "issue": b.get("issue"), "source": "external"}
+        self.det.tier_max = max(self.det.tier_max, tier)
+        self.det.timeline.append(entry)
+        self.emit_log("alert" if tier else "warn", "external", f"TIER {tier}: {text}")
+        await self.broadcast({"type": "tier", **entry})
+        self.step = max(self.step, tier + 1)
+        if b.get("status", "done") == "done":
+            if scope == "department" and dept:
+                self.det.dept[dept] = "blocked"
+            elif scope == "enterprise":
+                await self.feedback({"zone": "cut"})
+            elif tier == 0 and agent in self.agents and self.det.agent.get(agent) != "blocked":
+                self.det.agent[agent] = "watch"
+            elif agent in self.agents:
+                self.det.agent[agent] = "blocked"
+        await self.push_snap()
+        return entry
+
     async def make_report(self):
         lines = [f"- {time.strftime('%H:%M:%S', time.localtime(e['t']))} TIER {e['tier']} ({e['scope']}): {e['text']}" for e in self.det.timeline]
         summary = ""
