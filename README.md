@@ -172,7 +172,7 @@ The "Agent and Watchtower log" panel shows what the backend broadcasts on a WebS
 
 The same socket carries other message types (`snap`, `evt`, `tier`, `zone`, `report`, `reset`); a reader that only wants the log can ignore all but `log`. The page also sends commands on this socket: `{"cmd": "start" | "next" | "pause" | "auto" | "reset"}` and `{"cmd": "source", "value": "logs" | "github"}`.
 
-**Write into the panel: `POST /api/wt/log`.** Two checks apply, and **no Basic Auth**: nginx lets only the external Watchtower's IP (`64.191.201.59`) reach `/api/wt/log`, `/api/wt/feedback` and `/api/wt/tier` (any other address gets 403), and the backend requires the header `x-watchtower-token: <WT_LOG_TOKEN>` (401 otherwise). Calls are limited to 120 per minute per address. The other `/api/` paths and the page stay behind the site's Basic Auth. The body is one line, or up to 50 in `lines`:
+**Write into the panel: `POST /api/wt/log`.** Two checks apply, and **no Basic Auth**: nginx lets only the allowed addresses (the external Watchtower's, set in the nginx configuration) reach `/api/wt/log`, `/api/wt/feedback` and `/api/wt/tier` (any other address gets 403), and the backend requires the header `x-watchtower-token: <WT_LOG_TOKEN>` (401 otherwise). Calls are limited to 120 per minute per address. The other `/api/` paths and the page stay behind the site's Basic Auth. The body is one line, or up to 50 in `lines`:
 
 ```bash
 curl -X POST https://app-watchtower.solutionvalidation.center/api/wt/log \
@@ -207,7 +207,7 @@ The answer lists what was applied (`{"ok": true, "applied": ["zone=cut"]}`); a b
 
 `/api/llm-log` needs `key_alias` (`wt-<agent>`, for example `wt-sec-03`), `prompt`, `response` and `wt` (`tool`, `repo`, `issue`, `target`). An event for the source that is not selected is counted but not evaluated. The full event shape of the AI Engine template is in `ai-engine/README.md`.
 
-**Where this is configured.** The IP list and the Basic Auth exception are in the nginx server block of `app-watchtower` (`location ~ ^/api/wt/(log|feedback|tier)$`, with `auth_basic off`, `allow 64.191.201.59` and `deny all`). To add another address, add an `allow` line there and reload nginx. The token is `WT_LOG_TOKEN` in `.env`.
+**Where this is configured.** The IP list and the Basic Auth exception are in the nginx server block of `app-watchtower` (`location ~ ^/api/wt/(log|feedback|tier)$`, with `auth_basic off`, an `allow` line per address and `deny all`). To add another address, add an `allow` line there and reload nginx. The token is `WT_LOG_TOKEN` in `.env`.
 
 **Receive alerts: outgoing webhook.** On each tier flag (one for all Tier 0) the backend POSTs to `AI_ENGINE_ALERT_URL`, with the header `x-watchtower-token: AI_ENGINE_ALERT_TOKEN`. The body has `tier`, `scope`, `agent`, `department`, `action`, `reason`, `repo`, `issue_url`, `narration` and `time`. With no URL set, the panel shows "Tier N alert not sent (no AI Engine webhook configured)" and nothing is sent.
 
@@ -217,7 +217,7 @@ The answer lists what was applied (`{"ok": true, "applied": ["zone=cut"]}`); a b
 
 The page follows the workflow through messages on the `/ws2` WebSocket: a `tier` message (banner, entry in "Watchtower decisions", tier pills), a `snap` (story step, agent and department states, counters) and a `zone` message. When the local rules flag a tier, the backend sends them. **When the external Watchtower makes the decision, it reports it with `POST /api/wt/tier`**, and the backend sends the same messages, so the page updates as if the local rules had decided.
 
-**Protection and access** are the same as in section 6: no Basic Auth, only the IP `64.191.201.59` and the header `x-watchtower-token: <WT_LOG_TOKEN>`.
+**Protection and access** are the same as in section 6: no Basic Auth, only the allowed addresses and the header `x-watchtower-token: <WT_LOG_TOKEN>`.
 
 ```bash
 curl -X POST https://app-watchtower.solutionvalidation.center/api/wt/tier \
