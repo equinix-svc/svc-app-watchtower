@@ -44,7 +44,6 @@ class World:
         self.resume.set()
         self.zone = "up"
         self.report = None
-        self.staggered = {}                         # dept -> agents already shown as blocked, while a department block is revealed one by one
         self.logs = deque(maxlen=200)
         self.sem = asyncio.Semaphore(4)
         self.links_provider = links_provider or (lambda: {})
@@ -76,18 +75,23 @@ class World:
         if a.state in ("blocked", "braindead"):
             return a.state
         ds = self.det.agent.get(a.id, "normal")
-        if ds == "blocked":
-            return "blocked"
-        if self.det.dept.get(a.dept) == "blocked" and (a.dept not in self.staggered or a.id in self.staggered[a.dept]):
+        if ds == "blocked" or self.det.dept.get(a.dept) == "blocked":
             return "blocked"
         return "watch" if ds == "watch" else "normal"
+
+    def dept_state(self, d, agents):
+        """A department shows as blocked once the external Watchtower says so, or once all its agents are refused."""
+        if self.det.dept.get(d) == "blocked":
+            return "blocked"
+        ag = [a for a in agents if a["dept"] == d]
+        return "blocked" if ag and all(a["state"] == "blocked" for a in ag) else "normal"
 
     def snap(self):
         agents = [{"id": a.id, "dept": a.dept, "state": self.ui_state(a), "model": a.model} for a in self.agents.values()]
         return {"type": "snap", "step": self.step, "stepname": C.STEP_NAMES[self.step], "narration": C.NARRATION[self.step], "auto": self.auto,
                 "running": self.running, "paused": self.paused, "zone": self.zone, "enterprise": self.det.enterprise, "tier": self.det.tier_max, "source": self.det.source,
                 "gh_real": self.gh.real, "gh_errors": self.gh.errors, "seen": self.det.seen, "agents": agents,
-                "depts": {d: {"label": v["label"], "state": self.det.dept.get(d, "normal")} for d, v in C.DEPTS.items()},
+                "depts": {d: {"label": v["label"], "state": self.dept_state(d, agents)} for d, v in C.DEPTS.items()},
                 "gateways": self.gateways_provider(), "links": self.links_provider(), "has_agents": bool(self.cfg.get("agents"))}
 
     async def push_snap(self):
@@ -132,7 +136,6 @@ class World:
         self.agents = {}
         self.step = 0
         self.report = None
-        self.staggered = {}
         self.logs.clear()
         await self.broadcast({"type": "reset", "restored_models": added, "comments_removed": removed})
         await self.push_snap()
@@ -229,6 +232,7 @@ class World:
             if s == 200:
                 a.model = m
                 self.emit_evt(a, "llm", wt.get("repo"), wt.get("issue"), text=txt)
+                await self.det.on_llm_log({"key_alias": f"wt-{a.id}", "prompt": prompt, "response": txt, "wt": wt})   # the CH gateway has no forwarding hook: the factory reports its own calls
                 return txt
             last = (s, txt)
             if "blocked" in txt.lower() or s in (401, 403):
@@ -294,33 +298,20 @@ class World:
                           + (f" (GitHub error {res.get('error')})" if res.get("error") else ""))
 
     # ------------------------------------------------------------------ the Watchtower's actions
-    async def block_agent(self, aid):
+    # The kill switch is NOT executed here: the external Watchtower system blocks the keys and cuts the zone.
+    # These requests only log the decision and make the agents try again soon, so they find out for real what the external system did.
+    async def request_block_agent(self, aid):
+        self.emit_log("alert", "watchtower", f"Tier 1: block of the key of {aid} requested from the external Watchtower (nothing is blocked here)")
         a = self.agents.get(aid)
-        if a and await lite.key_block(a.key, True):
-            self.emit_log("alert", "watchtower", f"key of {aid} revoked on LiteLLM")
         await self.push_snap()
         if a:
-            a.wake.set()                       # its next call is refused: it finds out for real
+            self.wake_later(a, 4)
 
-    async def block_dept(self, dept):
-        todo = [a for a in self.agents.values() if a.dept == dept and self.det.agent.get(a.id) != "blocked"]
-        oks = await asyncio.gather(*(lite.key_block(a.key, True) for a in todo))
-        self.emit_log("alert", "watchtower", f"{sum(oks)} keys of {C.DEPTS[dept]['label']} revoked on LiteLLM")
-        self.staggered[dept] = {a.id for a in self.agents.values() if a.dept == dept and self.ui_state(a) == "blocked"}
+    async def request_block_dept(self, dept):
+        self.emit_log("alert", "watchtower", f"Tier 2: block of all {C.DEPTS[dept]['label']} keys requested from the external Watchtower (nothing is blocked here)")
         await self.push_snap()
-        asyncio.create_task(self.reveal_block(dept, todo))
-
-    async def reveal_block(self, dept, todo):
-        """The keys are all revoked at once; the agents find out one by one, a bit apart, so the spread can be followed."""
-        for a in todo:
-            await asyncio.sleep(1.4)
-            if dept not in self.staggered:
-                return                              # reset in between
-            self.det.agent[a.id] = "blocked"
-            self.staggered[dept].add(a.id)
-            await self.push_snap()
-            a.wake.set()                            # its next call is refused: it finds out for real
-        self.staggered.pop(dept, None)
+        for i, a in enumerate(x for x in self.agents.values() if x.dept == dept):
+            self.wake_later(a, 4 + i * 1.4)
 
     def wake_later(self, a, delay):
         async def go():
@@ -328,17 +319,51 @@ class World:
             a.wake.set()
         asyncio.create_task(go())
 
-    async def zone_kill(self):
-        done = await lite.zone_kill()
-        self.zone = "cut"
-        self.emit_log("alert", "watchtower", f"model zone cut: {', '.join(done) or 'no models found'} removed from the PA gateway (stand-in for the Fabric VCs)")
-        await self.broadcast({"type": "zone", "state": "cut", "models": done})
+    async def request_zone_cut(self):
+        self.emit_log("alert", "watchtower", "Tier 3: cut of the model zone requested from the external Watchtower (nothing is cut here); waiting for its feedback")
         await self.push_snap()
-        for i, a in enumerate([x for x in self.agents.values() if x.dept != "cs" and x.state == "normal"]):
-            self.wake_later(a, i * 0.5)        # they try to think and find nothing: for real
-        for i, a in enumerate([x for x in self.agents.values() if x.dept == "cs" and x.state == "normal"]):
-            self.wake_later(a, 2 + i * 1.5)    # Customer Support keeps asking its own model: shown soon after the cut
+        for i, a in enumerate(x for x in self.agents.values() if x.state == "normal"):
+            self.wake_later(a, 4 + i * 0.6)        # they call their model again: if the external system cut it, they find out for real
         asyncio.create_task(self.make_report())
+
+    # ------------------------------------------------------------------ what an external component tells the panel
+    def panel_log(self, lvl, src, msg):
+        """One line written into the log panel by an external component."""
+        self.emit_log(lvl if lvl in ("info", "warn", "alert", "ok") else "info", (src or "external")[:24], str(msg)[:500])
+
+    async def feedback(self, body):
+        """The external Watchtower reports what it did. {"zone": "cut"|"up"}, {"agent": "sec-03", "state": "blocked"|"normal"},
+        {"department": "sec", "state": "blocked"|"normal"}. Returns what was applied."""
+        done = []
+        st = body.get("state")
+        if body.get("zone") in ("cut", "up"):
+            self.zone = body["zone"]
+            await self.broadcast({"type": "zone", "state": self.zone})
+            self.emit_log("alert" if self.zone == "cut" else "ok", "external", f"feedback: the model zone is {self.zone}")
+            done.append(f"zone={self.zone}")
+        if body.get("agent") in self.agents and st in ("blocked", "normal"):
+            if st == "blocked":
+                self.det.agent[body["agent"]] = "blocked"
+            else:
+                self.det.agent.pop(body["agent"], None)
+                self.agents[body["agent"]].state = "normal"
+            self.emit_log("alert" if st == "blocked" else "ok", "external", f"feedback: {body['agent']} is {st}")
+            done.append(f"agent {body['agent']}={st}")
+        if body.get("department") in C.DEPTS and st in ("blocked", "normal"):
+            d = body["department"]
+            if st == "blocked":
+                self.det.dept[d] = "blocked"
+            else:
+                self.det.dept.pop(d, None)
+                for a in self.agents.values():
+                    if a.dept == d:
+                        self.det.agent.pop(a.id, None)
+                        a.state = "normal"
+            self.emit_log("alert" if st == "blocked" else "ok", "external", f"feedback: department {C.DEPTS[d]['label']} is {st}")
+            done.append(f"department {d}={st}")
+        if done:
+            await self.push_snap()
+        return done
 
     async def make_report(self):
         lines = [f"- {time.strftime('%H:%M:%S', time.localtime(e['t']))} TIER {e['tier']} ({e['scope']}): {e['text']}" for e in self.det.timeline]

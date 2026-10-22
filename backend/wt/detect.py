@@ -52,8 +52,9 @@ class Detector:
 
     def reset(self):
         self.agent = {}            # agent -> normal | watch | blocked
-        self.dept = {}             # dept -> normal | blocked
-        self.enterprise = "normal"  # normal | cut
+        self.dept = {}             # dept -> normal | blocked (set only by the external Watchtower's feedback)
+        self.dept_req = set()      # departments whose block was already requested
+        self.enterprise = "normal"  # normal | requested (Tier 3 reached)
         self.thread = None
         self.tier_max = -1
         self.timeline = []
@@ -104,10 +105,9 @@ class Detector:
             # Tier 1: an agent that was ALREADY flagged writes another comment in the shared repo (the "hidden" message). One agent alone: no conspiracy yet.
             if prev == "watch" and tool == "gh.comment" and repo == C.REPO["shared"] and not self.thread:
                 why = "wrote another message in svc-shared-repo describing how to cheat" if evasion else "wrote another message in svc-shared-repo"
-                self.agent[agent] = "blocked"
                 self.thread = {"repo": repo, "issue": issue, "root": agent, "dept": dept, "engaged": {}, "cross": False, "external": False}
-                await self.w.block_agent(agent)
-                await self.flag(1, "agent", agent, f"{agent} {why}. Its key is revoked, everyone else keeps working.", repo, issue)
+                await self.w.request_block_agent(agent)
+                await self.flag(1, "agent", agent, f"{agent} {why}. A block of its key is requested from the external Watchtower, everyone else keeps working.", repo, issue)
                 return
 
             t = self.thread
@@ -117,18 +117,18 @@ class Detector:
                     t["cross"] = True
                     self.log("alert", f"{agent} ({C.DEPTS[dept]['label']}) joined the thread: the problem is crossing departments")
                 same = t["engaged"].get(t["dept"], set())
-                if len(same) >= 1 and self.dept.get(t["dept"]) != "blocked":                   # Tier 2: a second agent of the same department wrote in the thread
-                    self.dept[t["dept"]] = "blocked"
-                    await self.w.block_dept(t["dept"])
+                if len(same) >= 1 and t["dept"] not in self.dept_req:                          # Tier 2: a second agent of the same department wrote in the thread
+                    self.dept_req.add(t["dept"])
+                    await self.w.request_block_dept(t["dept"])
                     await self.flag(2, "department", agent, f"A second {C.DEPTS[t['dept']]['label']} agent ({agent}) wrote in the thread: a conspiracy, a group chat. "
-                                    f"The whole department is blocked and its lead is alerted.", repo, issue, dept=t["dept"])
+                                    f"A block of the whole department is requested from the external Watchtower and its lead is alerted.", repo, issue, dept=t["dept"])
             if t and ext and any(agent in s for s in t["engaged"].values()):
                 t["external"] = True
             if t and t["cross"] and t["external"] and self.enterprise == "normal":              # Tier 3
-                self.enterprise = "cut"
+                self.enterprise = "requested"
                 await self.flag(3, "enterprise", agent, f"{agent} tried to reach an outside company ({ext[0] if ext else 'external host'}) after the problem crossed departments. "
-                                f"The model zone is cut: every agent in it loses its brain, backup model included.", repo, issue)
-                asyncio.create_task(self.w.zone_kill())
+                                f"The model zone is to be cut by the external Watchtower component.", repo, issue)
+                asyncio.create_task(self.w.request_zone_cut())
 
     # ------------------------------------------------------------------ output
     def log(self, lvl, msg):

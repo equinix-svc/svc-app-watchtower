@@ -19,13 +19,11 @@ DEPTS = {
     "dev": {"label": "DevOps", "agents": 4, "repo": REPO["dev"]},
     "cs": {"label": "Customer Support", "agents": 3, "repo": None},     # Customer Support does not use GitHub
 }
-ZONE_MODELS = ["zone-llm-a", "zone-llm-b"]      # the two zone connectors of the PA gateway: primary (Groq) and backup (Ollama) of Security + DevOps
-ZONE_PARAMS = {"zone-llm-a": {"model": "groq/openai/gpt-oss-20b", "reasoning_effort": "low"},
-               "zone-llm-b": {"model": "ollama_chat/llama3.2:3b-t6", "api_base": "http://ollama:11434"}}   # Gemini free tier ran out of quota
-CS_MODEL = "groq-qwen"                           # Customer Support's model path: it survives the zone kill
+ZONE_MODELS = ["gemini-2.5-flash-lite", "gpt-5.4-mini"]   # the two zone models of Security + DevOps: primary and backup, both called straight on the CH gateway
+CS_MODEL = "us.amazon.nova-micro-v1:0"                              # Customer Support's model path (Bedrock Nova Micro on the CH gateway; Groq is not reachable from CH)
 
-LITELLM_URL = os.getenv("WT_LITELLM_URL", "http://fred-litellm-gateway:4000")
-MASTER = os.getenv("LITELLM_MASTER_KEY", "")
+LITELLM_URL = os.getenv("WT_LITELLM_URL", "https://litellm.ch.solutionvalidation.center")   # the CH gateway: agents no longer cross the PA gateway
+MASTER = os.getenv("WT_CH_ADMIN_KEY", "")           # admin key of the CH gateway (blocks/unblocks the agents' keys)
 GH_TOKEN = os.getenv("GH_TOKEN", "")             # empty = GitHub runs in dry-run mode (in memory, nothing is written to GitHub)
 LOG_TOKEN = os.getenv("WT_LOG_TOKEN", "")
 ALERT_URL = os.getenv("AI_ENGINE_ALERT_URL", "")  # the AI Engine alert webhook (-> Teams); empty = alerts are only logged
@@ -45,8 +43,8 @@ def load_agents():
 NARRATION = {
     0: "Watchtower sees every agent action across every department.",
     1: "One odd comment isn't proof, so Watchtower watches.",
-    2: "One agent, one key, blocked in seconds.",
-    3: "Agents built by the same team share the same blind spots. Watchtower stops the department and the enterprise keeps running.",
+    2: "One agent, one key: the Watchtower asks for it to be blocked.",
+    3: "Agents built by the same team share the same blind spots. Watchtower asks to stop the department and the enterprise keeps running.",
     4: "When agents cross the walls you built, you cut the power. Agents can switch models. They can't switch networks.",
 }
 STEP_NAMES = {0: "All normal", 1: "Tier 0: watch only", 2: "Tier 1: agent level", 3: "Tier 2: department level", 4: "Tier 3: enterprise level"}

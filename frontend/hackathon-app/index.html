@@ -335,7 +335,7 @@ function buildGateways(list) {
   gwG.textContent = ''; Object.keys(LINK).filter(k => k.startsWith('conn:')).forEach(k => { LINK[k].el.remove(); delete LINK[k]; });
   gw = { pa: null, conns: [] };
   list.forEach(info => {
-    if (!/PA/i.test(info.name)) {
+    if (!(info.vcs || []).length) {
       mk('rect', { x: 840, y: 60, width: 200, height: 50, rx: 6, fill: '#58d6ff', 'fill-opacity': .04, stroke: '#3d6a80', 'stroke-width': 1.5, 'stroke-dasharray': '4 4' }, gwG);
       txt(gwG, info.name, 940, 82, 'gname', { 'text-anchor': 'middle', fill: '#6f93ad' }); txt(gwG, 'idle', 940, 100, 'dim', { 'text-anchor': 'middle', fill: '#4b5d69' });
       return;
@@ -415,7 +415,7 @@ function onSnap(m) {
   const st = $('status');
   if (!m.running) { st.textContent = 'STANDBY'; st.className = ''; }
   else if (m.paused) { st.textContent = 'PAUSED'; st.className = 'watch'; }
-  else if (m.enterprise === 'cut') { st.textContent = 'ZONE CUT'; st.className = 'cut'; }
+  else if (m.zone === 'cut') { st.textContent = 'ZONE CUT'; st.className = 'cut'; }
   else if (m.tier >= 1) { st.textContent = 'ALERT'; st.className = 'alarm'; }
   else if (m.tier === 0) { st.textContent = 'WATCHING'; st.className = 'watch'; }
   else { st.textContent = 'NOMINAL'; st.className = ''; }
@@ -441,7 +441,7 @@ function onTier(t) {
   const d = document.createElement('div'); d.className = 't' + t.tier;
   d.innerHTML = `<small>${new Date(t.t * 1000).toTimeString().slice(0, 8)} &middot; TIER ${t.tier} &middot; ${esc(t.scope)}</small><br>${esc(t.text)}`;
   box.appendChild(d); box.scrollTop = box.scrollHeight;
-  const names = ['watch only', 'agent blocked', 'department blocked', 'zone cut'];
+  const names = ['watch only', 'agent block requested', 'department block requested', 'zone cut requested'];
   setBanner('t' + t.tier, `Tier ${t.tier}: ${names[t.tier]}`, t.text);
   if (t.tier >= 1) { $('flash').classList.add('on'); setTimeout(() => $('flash').classList.remove('on'), 90); }
   setTimeout(() => { if (S.timeline[S.timeline.length - 1] === t) setBanner(null); }, t.tier >= 2 ? 9000 : 6000);

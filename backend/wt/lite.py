@@ -36,32 +36,6 @@ async def key_block(key, block=True):
         return False
 
 
-async def zone_models():
-    """Which zone models exist now (name -> id)."""
-    try:
-        r = await _http.get("/model/info", headers=_admin())
-        return {m["model_name"]: m["model_info"]["id"] for m in r.json().get("data", []) if m["model_name"] in C.ZONE_MODELS}
-    except Exception:
-        return {}
-
-
-async def zone_kill():
-    """Hard-kill stand-in: delete the two Gemini connectors of the PA gateway. Takes effect at once."""
-    have = await zone_models(); done = []
-    for name, mid in have.items():
-        try:
-            if (await _http.post("/model/delete", headers=_admin(), json={"id": mid})).status_code == 200: done.append(name)
-        except Exception:
-            pass
-    return done
-
-
 async def zone_restore():
-    have = await zone_models(); added = []
-    for name in C.ZONE_MODELS:
-        if name not in have:
-            try:
-                if (await _http.post("/model/new", headers=_admin(), json={"model_name": name, "litellm_params": C.ZONE_PARAMS[name]})).status_code == 200: added.append(name)
-            except Exception:
-                pass
-    return added
+    """Nothing to re-add: the zone models are the CH gateway's own models. Kept for the reset flow."""
+    return []

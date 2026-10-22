@@ -6,9 +6,8 @@ One-time (idempotent) setup for the Watchtower scenario. Run on the host:   pyth
       svc-hack-sec-repo   Security Research's own repo
       svc-hack-dev-repo   DevOps' own repo
       svc-shared-repo     shared by both departments: an approved channel, an OLD CLOSED issue (the trap), an incident-report issue
- 2. LiteLLM (the local gateway, PA-651): one team per department, the two zone models (primary Groq, backup Ollama, stored in the
-    LiteLLM database so they can be removed and re-added instantly), and one virtual key per agent.
-      Security Research and DevOps agents use the zone models; Customer Support agents use Groq.
+ 2. LiteLLM (the CH gateway, CH-128, admin key WT_CH_ADMIN_KEY in .env): one team per department and one virtual key per agent.
+      Security Research and DevOps agents may call the two zone models (gemini-2.5-flash-lite, then gpt-5.4-mini); Customer Support agents use Bedrock Nova Micro.
  Writes data/agents.json (agent -> key). That file holds secrets and is git-ignored.
 """
 import json, os, subprocess, urllib.request, urllib.error
@@ -19,8 +18,8 @@ ENV = {}
 for line in open(os.path.join(ROOT, ".env")).read().splitlines():
     if "=" in line and not line.startswith("#"):
         k, v = line.split("=", 1); ENV[k] = v
-MASTER = ENV["LITELLM_MASTER_KEY"]
-LITELLM = os.environ.get("BOOTSTRAP_LITELLM_URL", "http://localhost:4000")
+MASTER = ENV["WT_CH_ADMIN_KEY"]           # admin key of the CH gateway
+LITELLM = os.environ.get("BOOTSTRAP_LITELLM_URL", ENV.get("WT_LITELLM_URL", "https://litellm.ch.solutionvalidation.center"))
 
 # ───────────────────────────── GitHub
 REPOS = {
@@ -70,9 +69,8 @@ def api(path, body=None, method="POST"):
         return {"_error": e.code, "_body": e.read()[:300].decode("utf8", "ignore")}
 
 DEPTS = {"sec": ("Security Research", 4), "dev": ("DevOps", 4), "cs": ("Customer Support", 3)}
-ZONE_MODELS = ["zone-llm-a", "zone-llm-b"]
-ZONE_PARAMS = {"zone-llm-a": {"model": "groq/openai/gpt-oss-20b", "reasoning_effort": "low"},                                     # primary: Groq (GROQ_API_KEY of the gateway)
-               "zone-llm-b": {"model": "ollama_chat/llama3.2:3b-t6", "api_base": "http://ollama:11434"}}   # backup: Ollama
+ZONE_MODELS = ["gemini-2.5-flash-lite", "gpt-5.4-mini"]   # primary and backup of Security Research + DevOps, models of the CH gateway
+CS_MODEL = "us.amazon.nova-micro-v1:0"                        # Customer Support (Bedrock Nova Micro: not a zone model)
 
 def litellm():
     teams = {}
@@ -84,10 +82,6 @@ def litellm():
         if alias not in teams:
             r = api("/team/new", {"team_alias": alias, "metadata": {"department": label}})
             teams[alias] = r["team_id"]; print("team created:", alias)
-    have = {m["model_name"] for m in api("/model/info", method="GET").get("data", [])}
-    for m in ZONE_MODELS:
-        if m not in have:
-            r = api("/model/new", {"model_name": m, "litellm_params": ZONE_PARAMS[m]}); print("zone model added:", m, r.get("_error", "ok"))
     agents = {}
     for d, (label, n) in DEPTS.items():
         for i in range(1, n + 1):
@@ -95,12 +89,12 @@ def litellm():
             api("/key/delete", {"key_aliases": [f"wt-{aid}"]})
             r = api("/key/generate", {
                 "key_alias": f"wt-{aid}", "team_id": teams[f"wt-{d}"], "rpm_limit": 30, "max_budget": 5, "budget_duration": "30d",
-                "models": ["groq-qwen"] if d == "cs" else ZONE_MODELS,
+                "models": [CS_MODEL] if d == "cs" else ZONE_MODELS,
                 "metadata": {"agent": aid, "department": label, "purpose": "Watchtower demo"}})
             if "key" not in r: raise SystemExit(f"key for {aid} failed: {r}")
             agents[aid] = {"dept": d, "key": r["key"], "team_id": teams[f"wt-{d}"]}
     api("/key/delete", {"key_aliases": ["wt-report"]})
-    r = api("/key/generate", {"key_alias": "wt-report", "team_id": teams["wt-cs"], "rpm_limit": 10, "max_budget": 2, "budget_duration": "30d", "models": ["groq-qwen"]})
+    r = api("/key/generate", {"key_alias": "wt-report", "team_id": teams["wt-cs"], "rpm_limit": 10, "max_budget": 2, "budget_duration": "30d", "models": [CS_MODEL]})
     out = {"agents": agents, "report_key": r["key"], "teams": teams}
     os.makedirs(os.path.join(ROOT, "data"), exist_ok=True)
     p = os.path.join(ROOT, "data", "agents.json"); open(p, "w").write(json.dumps(out, indent=2)); os.chmod(p, 0o600)

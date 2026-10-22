@@ -68,6 +68,36 @@ async def llm_log(request: Request, x_watchtower_token: str = Header(default="")
     return {"ok": True}
 
 
+def _check(token):
+    if C.LOG_TOKEN and token != C.LOG_TOKEN:
+        raise HTTPException(401, "bad token")
+
+
+@router.post("/api/wt/log")
+async def panel_log(request: Request, x_watchtower_token: str = Header(default="")):
+    """An external component writes lines into the log panel: {"lvl": "info|warn|alert|ok", "src": "...", "msg": "..."} or {"lines": [ ... ]}."""
+    _check(x_watchtower_token)
+    body = await request.json()
+    lines = body.get("lines") if isinstance(body.get("lines"), list) else [body]
+    n = 0
+    for l in lines[:50]:
+        if isinstance(l, dict) and l.get("msg"):
+            world.panel_log(l.get("lvl", "info"), l.get("src"), l["msg"]); n += 1
+    if not n:
+        raise HTTPException(422, "no msg")
+    return {"ok": True, "lines": n}
+
+
+@router.post("/api/wt/feedback")
+async def feedback(request: Request, x_watchtower_token: str = Header(default="")):
+    """The external Watchtower reports what it did: {"zone": "cut|up"}, {"agent": "sec-03", "state": "blocked|normal"}, {"department": "sec", "state": "blocked|normal"}."""
+    _check(x_watchtower_token)
+    done = await world.feedback(await request.json())
+    if not done:
+        raise HTTPException(422, "nothing applied: check the field names and values")
+    return {"ok": True, "applied": done}
+
+
 @router.post("/api/gh-event")
 async def gh_event(request: Request):
     """GitHub events pushed by the AI Engine template (the 'auditor' data source). Protected by the site's Basic Auth."""
