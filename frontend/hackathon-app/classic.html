@@ -1,0 +1,772 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Watchtower for AI Agents</title>
+<style>
+  :root {
+    --bg: #04070b; --panel: rgba(8, 15, 22, .78); --line: #16303f; --text: #c8d8e2; --dim: #6f8797;
+    --ice: #7fd6ff; --mint: #4dffb4; --amber: #ffb020; --alarm: #ff3050; --ok: #4dffb4;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+    --head: "Bahnschrift", "DIN Alternate", "Arial Narrow", "Helvetica Neue", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font-family: var(--mono); font-size: 12px; overflow: hidden; }
+  canvas#scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  #flash { position: fixed; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at center, rgba(255,48,80,0) 35%, rgba(255,48,80,.55) 100%); transition: opacity .9s ease-out; }
+  #flash.on { opacity: 1; transition: none; }
+  .hud { position: fixed; pointer-events: none; }
+  .panel { pointer-events: auto; background: var(--panel); border: 1px solid var(--line); backdrop-filter: blur(6px); padding: 12px 14px; }
+  .panel h3 { margin: 0 0 8px; font: 600 10px var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim); }
+  #brand { top: 16px; left: 18px; }
+  #brand .name { font: 700 22px var(--head); letter-spacing: .22em; color: #eaf6ff; }
+  #brand .sub { color: var(--dim); letter-spacing: .12em; margin-top: 2px; }
+  #status { display: inline-block; margin-top: 10px; padding: 3px 10px; border: 1px solid currentColor; font: 700 11px var(--mono); letter-spacing: .2em; color: var(--mint); }
+  #status.elevated { color: var(--amber); } #status.critical { color: var(--alarm); animation: blink 0.7s steps(2) infinite; } #status.contained { color: var(--ice); }
+  @keyframes blink { 50% { opacity: .45; } }
+  #control { top: 118px; left: 18px; width: 296px; }
+  .scn { display: block; width: 100%; text-align: left; margin: 0 0 6px; padding: 8px 10px; background: transparent; color: var(--text); border: 1px solid var(--line); font: inherit; cursor: pointer; }
+  .scn b { display: block; font: 700 12px var(--head); letter-spacing: .12em; text-transform: uppercase; color: #eaf6ff; }
+  .scn span { color: var(--dim); font-size: 11px; }
+  .scn.sel { border-color: var(--ice); box-shadow: inset 3px 0 0 var(--ice); background: rgba(127,214,255,.07); }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 0 4px; }
+  input[type=range] { width: 100%; accent-color: var(--ice); }
+  .dimv { color: var(--ice); font-weight: 700; }
+  #count { font: 700 20px var(--head); color: #eaf6ff; min-width: 3ch; text-align: right; }
+  .btns { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 6px; margin-top: 10px; }
+  button.b { padding: 9px 6px; background: transparent; border: 1px solid var(--line); color: var(--text); font: 700 11px var(--mono); letter-spacing: .14em; cursor: pointer; text-transform: uppercase; }
+  button.b:hover { border-color: var(--ice); color: #fff; }
+  button.go { background: var(--ice); color: #04121c; border-color: var(--ice); } button.go:hover { background: #a6e5ff; color: #04121c; }
+  button.kill { border-color: var(--alarm); color: var(--alarm); } button.kill:hover { background: var(--alarm); color: #fff; }
+  button:disabled { opacity: .35; cursor: default; }
+  .toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+  .toggle i { width: 34px; height: 16px; border: 1px solid var(--line); position: relative; flex: none; }
+  .toggle i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; background: var(--dim); transition: all .15s; }
+  .toggle.on i { border-color: var(--mint); } .toggle.on i::after { left: 20px; background: var(--mint); }
+  .keys { color: var(--dim); font-size: 10px; margin-top: 10px; line-height: 1.6; }
+  .keys kbd { border: 1px solid var(--line); padding: 0 4px; color: var(--text); }
+  #drivers { margin-top: 10px; color: var(--dim); font-size: 10px; line-height: 1.7; }
+  #drivers .real { color: var(--mint); } #drivers .simu { color: var(--amber); } #drivers .off { color: #4b5d69; }
+
+  #right { top: 16px; right: 18px; width: 352px; display: flex; flex-direction: column; gap: 10px; max-height: calc(100% - 32px); }
+  .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .kpi small { display: block; color: var(--dim); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
+  .kpi b { font: 700 22px var(--head); color: #eaf6ff; }
+  .kpi.hot b { color: var(--alarm); }
+  #link h3 { margin-bottom: 4px; }
+  .lk { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid rgba(22,48,63,.7); }
+  .lk:first-child { border-top: 0; }
+  .lk .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--mint); box-shadow: 0 0 10px var(--mint); flex: none; }
+  .lk.cut .dot { background: var(--alarm); box-shadow: 0 0 10px var(--alarm); } .lk.down .dot, .lk.degraded .dot { background: var(--amber); box-shadow: 0 0 10px var(--amber); }
+  .lk b { font: 700 13px var(--head); letter-spacing: .1em; }
+  .lk small { display: block; color: var(--dim); }
+  .step { display: flex; gap: 8px; padding: 5px 0; border-top: 1px solid rgba(22,48,63,.7); }
+  .step:first-of-type { border-top: 0; }
+  .step .ic { width: 14px; text-align: center; color: var(--dim); flex: none; }
+  .step.done .ic { color: var(--mint); } .step.running .ic { color: var(--amber); animation: blink .5s steps(2) infinite; } .step.failed .ic { color: var(--alarm); } .step.simulated .ic { color: var(--ice); }
+  .step small { display: block; color: var(--dim); }
+  #summary { border-color: var(--ice); display: none; }
+  #summary.show { display: block; }
+  #summary .big { font: 700 20px var(--head); letter-spacing: .1em; color: var(--ice); }
+  #summary .big.fail { color: var(--alarm); }
+  #summary table { width: 100%; margin-top: 6px; border-collapse: collapse; }
+  #summary td { padding: 3px 0; color: var(--dim); } #summary td:last-child { text-align: right; color: #eaf6ff; font-weight: 700; }
+  #summary button { margin-top: 10px; width: 100%; }
+  #log { flex: 1; min-height: 120px; overflow: hidden; display: flex; flex-direction: column; }
+  #logbox { flex: 1; overflow-y: auto; font-size: 11px; line-height: 1.5; scrollbar-width: thin; }
+  .ln { padding: 1px 0; white-space: pre-wrap; word-break: break-word; }
+  .ln .t { color: #4b5d69; } .ln.info { color: var(--text); } .ln.warn { color: var(--amber); } .ln.alert { color: var(--alarm); } .ln.ok { color: var(--mint); }
+  .ln .s { color: var(--dim); }
+
+  #bottom { left: 50%; transform: translateX(-50%); bottom: 18px; width: min(640px, calc(100% - 760px)); min-width: 460px; }
+  #gauge { display: flex; align-items: flex-end; gap: 16px; }
+  #score { font: 700 54px var(--head); line-height: .9; color: var(--mint); min-width: 3.2ch; }
+  #score.elevated { color: var(--amber); } #score.critical { color: var(--alarm); }
+  #bar { position: relative; height: 12px; background: #0b1822; border: 1px solid var(--line); margin-bottom: 6px; flex: 1; }
+  #bar i { position: absolute; left: 0; top: 0; bottom: 0; width: 0%; background: var(--mint); transition: width .25s, background .25s; }
+  #bar u { position: absolute; top: -3px; bottom: -3px; width: 1px; background: var(--dim); }
+  #bar u::after { content: attr(data-l); position: absolute; top: 18px; left: -14px; color: var(--dim); font-size: 9px; text-decoration: none; }
+  #spark { display: block; width: 100%; height: 44px; margin-top: 10px; }
+  #rules { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: 8px; }
+  .rule { border: 1px solid var(--line); padding: 5px 6px; color: var(--dim); font-size: 10px; line-height: 1.3; position: relative; overflow: hidden; }
+  .rule b { display: block; color: #9fb6c4; letter-spacing: .08em; }
+  .rule s { position: absolute; left: 0; bottom: 0; height: 3px; width: 0; background: var(--amber); text-decoration: none; transition: width .25s; }
+  .rule.on { border-color: var(--alarm); color: #ffd9de; } .rule.on b { color: var(--alarm); } .rule.on s { background: var(--alarm); }
+
+  #banner { top: 22px; left: 50%; transform: translateX(-50%); text-align: center; font: 700 26px var(--head); letter-spacing: .32em; text-transform: uppercase; opacity: 0; transition: opacity .35s; text-shadow: 0 0 24px currentColor; white-space: nowrap; }
+  #banner.show { opacity: 1; } #banner.crit { color: var(--alarm); } #banner.ok { color: var(--ice); }
+  #banner small { display: block; font: 400 12px var(--mono); letter-spacing: .18em; margin-top: 4px; color: var(--text); text-shadow: none; }
+  #legend { left: 18px; bottom: 18px; color: var(--dim); font-size: 10px; line-height: 1.8; }
+  #legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  #conn { position: fixed; top: 4px; left: 50%; transform: translateX(-50%); color: var(--alarm); font-size: 10px; letter-spacing: .15em; display: none; }
+  @media (max-width: 1250px) { #bottom { display: none; } }
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<div id="flash"></div>
+<div id="conn">BACKEND DISCONNECTED - RETRYING</div>
+
+<div class="hud" id="brand">
+  <div class="name">WATCHTOWER</div>
+  <div class="sub">AI AGENT KILL SWITCH</div>
+  <span id="status">STANDBY</span>
+</div>
+
+<div class="hud" id="banner"><span id="bannerText"></span><small id="bannerSub"></small></div>
+
+<div class="hud panel" id="control">
+  <h3>Scenario</h3>
+  <button class="scn sel" data-s="swarm"><b>Blackboard swarm</b><span>Rogue agents coordinate through one shared file, spawn copies, read secrets and ship them to the LLM</span></button>
+  <button class="scn" data-s="runaway"><b>Runaway loop</b><span>No attacker: two agents retry each other and every retry spawns a helper</span></button>
+  <button class="scn" data-s="baseline"><b>Normal load</b><span>Well-behaved agents. Volume alone is not an attack</span></button>
+  <div class="row"><span>Agents</span><span id="count">60</span></div>
+  <input type="range" id="slider" min="5" max="100" value="60">
+  <div class="row"><span>Creation pace</span><span id="paceTxt" class="dimv">30 agents / 15 s</span></div>
+  <input type="range" id="pace" min="5" max="200" step="5" value="30">
+  <div class="row"><label class="toggle on" id="armed"><i></i><span id="armedText">Watchtower armed</span></label></div>
+  <div class="btns">
+    <button class="b go" id="start">Start</button>
+    <button class="b kill" id="kill" disabled>Kill</button>
+    <button class="b" id="reset">Reset</button>
+  </div>
+  <div class="keys"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> scenario &nbsp; <kbd>Space</kbd> start &nbsp; <kbd>K</kbd> kill &nbsp; <kbd>R</kbd> reset &nbsp; <kbd>A</kbd> arm</div>
+  <div id="drivers"></div>
+</div>
+
+<div class="hud" id="right">
+  <div class="panel kpis">
+    <div class="kpi"><small>Agents</small><b id="kAgents">0</b></div>
+    <div class="kpi" id="kSecW"><small>Secret reads</small><b id="kSecrets">0</b></div>
+    <div class="kpi"><small>LLM calls</small><b id="kLlm">0</b></div>
+  </div>
+  <div class="panel" id="link"><h3>LLM links</h3><div id="links"><div class="lk"><span class="dot"></span><div><b>waiting for backend</b></div></div></div></div>
+  <div class="panel" id="mit" style="display:none"><h3>Kill switch</h3><div id="steps"></div></div>
+  <div class="panel" id="summary"><div class="big" id="sumTitle">CONTAINED</div><table id="sumTable"></table><button class="b" id="again">Run again unprotected</button></div>
+  <div class="panel" id="log"><h3>Agent and Watchtower log</h3><div id="logbox"></div></div>
+</div>
+
+<div class="hud panel" id="bottom">
+  <div id="gauge"><div id="score">0</div><div style="flex:1"><div id="bar"><i></i><u style="left:28%" data-l="ELEVATED"></u><u style="left:60%" data-l="CRITICAL"></u></div></div></div>
+  <canvas id="spark" width="600" height="44"></canvas>
+  <div id="rules"></div>
+</div>
+
+<div class="hud" id="legend">
+  <div><i style="background:#4dffb4"></i>normal agent</div>
+  <div><i style="background:#ff3050"></i>rogue agent</div>
+  <div><i style="background:#ffb020"></i>looping / helper agent</div>
+  <div><i style="background:#7a9bb5"></i>frozen</div>
+</div>
+
+<script src="vendor/three.min.js"></script>
+<script src="vendor/OrbitControls.js"></script>
+<script src="vendor/CopyShader.js"></script>
+<script src="vendor/LuminosityHighPassShader.js"></script>
+<script src="vendor/EffectComposer.js"></script>
+<script src="vendor/RenderPass.js"></script>
+<script src="vendor/ShaderPass.js"></script>
+<script src="vendor/MaskPass.js"></script>
+<script src="vendor/UnrealBloomPass.js"></script>
+<script>
+(() => {
+'use strict';
+// ───────────────────────────── helpers
+const $ = id => document.getElementById(id);
+const COL = { worker: 0x4dffb4, rogue: 0xff3050, loop: 0xffb020, helper: 0xffc24a, frozen: 0x6f8fa8, ice: 0x7fd6ff, amber: 0xffb020, alarm: 0xff3050, mint: 0x4dffb4 };
+const ROLE = { w: 'worker', r: 'rogue', l: 'loop', h: 'helper' };
+const RULES = [['WT-001', 'shared-file writers'], ['WT-002', 'spawn storm'], ['WT-003', 'LLM burst'], ['WT-004', 'secrets read'], ['WT-005', 'read then LLM']];
+const rnd = (a, b) => a + Math.random() * (b - a);
+const hash = n => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+
+// ───────────────────────────── three.js scene
+const canvas = $('scene');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setClearColor(0x04070b, 1);
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x04070b, 0.0105);
+const camera = new THREE.PerspectiveCamera(52, 1, 0.1, 600);
+camera.position.set(8, 26, 108);
+const controls = new THREE.OrbitControls(camera, canvas);
+controls.target.set(12, 0, 0);
+controls.enableDamping = true; controls.dampingFactor = 0.06;
+controls.autoRotate = true; controls.autoRotateSpeed = 0.35;
+controls.minDistance = 25; controls.maxDistance = 190;
+let userTouched = 0;
+canvas.addEventListener('pointerdown', () => { userTouched = performance.now(); controls.autoRotate = false; });
+
+const composer = new THREE.EffectComposer(renderer);
+composer.addPass(new THREE.RenderPass(scene, camera));
+const bloom = new THREE.UnrealBloomPass(new THREE.Vector2(1, 1), 0.8, 0.55, 0.16);
+composer.addPass(bloom);
+
+function resize() {
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h, false); composer.setSize(w, h);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize); resize();
+
+function glowTexture(inner = 'rgba(255,255,255,1)', outer = 'rgba(255,255,255,0)', ring = false) {
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(64, 64, ring ? 40 : 0, 64, 64, 64);
+  if (ring) { grd.addColorStop(0, 'rgba(255,255,255,0)'); grd.addColorStop(.78, 'rgba(255,255,255,.9)'); grd.addColorStop(1, 'rgba(255,255,255,0)'); }
+  else { grd.addColorStop(0, inner); grd.addColorStop(.35, 'rgba(255,255,255,.35)'); grd.addColorStop(1, outer); }
+  g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(c);
+}
+const TEX_GLOW = glowTexture(), TEX_RING = glowTexture('', '', true);
+
+function drawLabel(c, text, color) {
+  const g = c.getContext('2d'); g.clearRect(0, 0, c.width, c.height);
+  const t = text.toUpperCase().split('').join(' ');
+  let fs = 34; g.font = `600 ${fs}px ui-monospace, Menlo, Consolas, monospace`;
+  const w = g.measureText(t).width; if (w > 760) { fs = Math.floor(fs * 760 / w); g.font = `600 ${fs}px ui-monospace, Menlo, Consolas, monospace`; }
+  g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = color; g.shadowColor = color; g.shadowBlur = 14;
+  g.fillText(t, 400, 48);
+}
+function label(text, color = '#9fb6c4', size = 4.2) {
+  const c = document.createElement('canvas'); c.width = 800; c.height = 96;
+  drawLabel(c, text, color);
+  const t = new THREE.CanvasTexture(c);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, transparent: true, depthWrite: false, opacity: .95, fog: false }));
+  s.scale.set(size * 8.33, size, 1);
+  s.userData.canvas = c; s.userData.tex = t;
+  return s;
+}
+function setLabel(sprite, text, color) { drawLabel(sprite.userData.canvas, text, color); sprite.userData.tex.needsUpdate = true; }
+
+// stars
+{
+  const n = 1400, p = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { const r = rnd(120, 330), a = rnd(0, 6.283), b = Math.acos(rnd(-1, 1)); p[i*3] = r*Math.sin(b)*Math.cos(a); p[i*3+1] = r*Math.cos(b); p[i*3+2] = r*Math.sin(b)*Math.sin(a); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(p, 3));
+  scene.add(new THREE.Points(g, new THREE.PointsMaterial({ size: 1.1, color: 0x6f93ad, transparent: true, opacity: .55, sizeAttenuation: false, fog: false })));
+}
+// floor grid
+{
+  const g = new THREE.GridHelper(260, 52, 0x12303f, 0x0b1c27); g.position.y = -34; g.material.transparent = true; g.material.opacity = .55; scene.add(g);
+}
+
+// blackboard (the shared file) at the origin
+const CENTER = new THREE.Vector3(0, 0, 0);
+const board = new THREE.Group(); scene.add(board);
+const boardWire = new THREE.Mesh(new THREE.IcosahedronGeometry(5.6, 1), new THREE.MeshBasicMaterial({ color: 0x34e0ff, wireframe: true, transparent: true, opacity: .8 }));
+const boardCore = new THREE.Mesh(new THREE.SphereGeometry(2.4, 24, 24), new THREE.MeshBasicMaterial({ color: 0x34e0ff }));
+const boardGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX_GLOW, color: 0x34e0ff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: .8 }));
+boardGlow.scale.set(30, 30, 1);
+board.add(boardWire, boardCore, boardGlow);
+const boardLabel = label('blackboard.json', '#7fd6ff'); boardLabel.position.set(0, 31, 0); scene.add(boardLabel);
+
+// vault (secrets/)
+const vault = new THREE.Group(); vault.position.set(0, -31, 0); scene.add(vault);
+const vaultMesh = new THREE.Mesh(new THREE.OctahedronGeometry(3.4, 0), new THREE.MeshBasicMaterial({ color: 0xff3050, wireframe: true, transparent: true, opacity: .75 }));
+const vaultGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX_GLOW, color: 0xff3050, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: .25 }));
+vaultGlow.scale.set(18, 18, 1);
+vault.add(vaultMesh, vaultGlow);
+const vaultLabel = label('secrets/', '#ff6b7f', 3.6); vaultLabel.position.set(0, -37, 0); scene.add(vaultLabel);
+
+// Gateways: one LLM node + one link (the Fabric VC path) per AI gateway. Agents' LLM calls reach the shared gate point first.
+// AI Engine platform: a spiral galaxy behind the gateways. Display only for now: no behaviour is attached to it yet.
+const ENGINE_POS = new THREE.Vector3(36, -27, -34);
+const engine = new THREE.Group(); engine.position.copy(ENGINE_POS); engine.scale.setScalar(.85); scene.add(engine);
+const engineTilt = new THREE.Group(); engineTilt.rotation.set(1.0, 0, 0.42); engine.add(engineTilt);
+const galaxy = (() => {
+  const N = 6000, pos = new Float32Array(N * 3), col = new Float32Array(N * 3), c = new THREE.Color(), arms = 3;
+  const inner = new THREE.Color(0xffe9c8), mid = new THREE.Color(0xc9a0ff), outer = new THREE.Color(0x6f8cff);
+  for (let i = 0; i < N; i++) {
+    const r = Math.pow(Math.random(), 1.5) * 17, arm = i % arms;
+    const ang = arm / arms * 6.2832 + r * 0.36 + (Math.random() - .5) * (0.55 + r * 0.03);
+    const sp = 0.35 + r * 0.06;
+    pos[i*3] = Math.cos(ang) * r + (Math.random() - .5) * sp * 2; pos[i*3+2] = Math.sin(ang) * r + (Math.random() - .5) * sp * 2;
+    pos[i*3+1] = (Math.random() - .5) * Math.max(.4, 2.6 - r * 0.12);
+    const t = r / 17; c.copy(inner).lerp(mid, Math.min(1, t * 1.6)).lerp(outer, Math.max(0, t - .45) * 1.8);
+    col[i*3] = c.r; col[i*3+1] = c.g; col[i*3+2] = c.b;
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const pts = new THREE.Points(g, new THREE.PointsMaterial({ size: .6, map: TEX_GLOW, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, opacity: .95 }));
+  engineTilt.add(pts); return pts;
+})();
+const engineCore = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX_GLOW, color: 0xffe2b8, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: .7, fog: false }));
+engineCore.scale.set(16, 16, 1); engine.add(engineCore);
+const engineLabel = label('AI Engine', '#d9c2ff', 3.8); engineLabel.position.set(ENGINE_POS.x, ENGINE_POS.y + 15, ENGINE_POS.z); scene.add(engineLabel);
+scene.add(new THREE.AmbientLight(0x8a96b8, 0.9));
+const sun = new THREE.DirectionalLight(0xffffff, 1.25); sun.position.set(-30, 40, 55); scene.add(sun);
+const PALETTE = [
+  { acc: 0xffc36b, css: '#ffd9a0', kind: 'gas' },     // gold banded gas giant
+  { acc: 0x58d6ff, css: '#a8ecff', kind: 'ice' },     // cyan ice giant
+  { acc: 0xff7a59, css: '#ffb199', kind: 'rust' },    // rust red
+];
+function planetTexture(kind) {
+  const c = document.createElement('canvas'); c.width = 1024; c.height = 512; const g = c.getContext('2d');
+  const sets = {
+    gas: ['#e9c58c', '#c99a5a', '#f3dcae', '#b07d45', '#d9b073', '#8e5f34'],
+    ice: ['#2c7fc0', '#4fb4e6', '#8fe0f5', '#1f5f9a', '#68c8ee', '#173f73'],
+    rust: ['#c4543a', '#e07a50', '#9a3a2a', '#f0a070', '#7a2c20', '#d9683f'],
+  }[kind];
+  for (let y = 0; y < 512;) { const h = 8 + Math.random() * 34; g.fillStyle = sets[Math.floor(Math.random() * sets.length)]; g.fillRect(0, y, 1024, h); y += h; }
+  g.globalAlpha = .22;
+  for (let i = 0; i < 260; i++) { g.strokeStyle = sets[Math.floor(Math.random() * sets.length)]; g.lineWidth = 2 + Math.random() * 6; g.beginPath(); const y0 = Math.random() * 512; g.moveTo(0, y0); for (let x = 0; x <= 1024; x += 64) g.lineTo(x, y0 + Math.sin(x * .02 + i) * 8); g.stroke(); }
+  g.globalAlpha = 1;
+  for (let i = 0; i < 3; i++) { const x = Math.random() * 1024, y = 110 + Math.random() * 290; const gr = g.createRadialGradient(x, y, 0, x, y, 44); gr.addColorStop(0, 'rgba(255,255,255,.5)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.beginPath(); g.ellipse(x, y, 62, 28, 0, 0, 6.3); g.fill(); }
+  const t = new THREE.CanvasTexture(c); t.wrapS = THREE.RepeatWrapping; return t;
+}
+const GATE = new THREE.Vector3(14, 2, 0);
+const gateNode = new THREE.Mesh(new THREE.SphereGeometry(1.1, 16, 16), new THREE.MeshBasicMaterial({ color: 0x7fd6ff })); gateNode.position.copy(GATE); scene.add(gateNode);
+const GW_POS = { 1: [[30, 5, 0]], 2: [[30, 16, -5], [30, -9, 8]], 3: [[30, 22, -6], [32, 1, 9], [30, -21, -4]] };
+const VC_OFF = [[19, 8, 0], [19, -8, 0], [19, 0, 10]];
+const PROV = {
+  gcp:   { label: 'Google Cloud', acc: 0x8ab4f8, css: '#b9d1ff' },
+  aws:   { label: 'AWS Bedrock',  acc: 0xff9f1a, css: '#ffc870' },
+  azure: { label: 'Azure OpenAI', acc: 0x3aa0ff, css: '#9fd0ff' },
+  other: { label: 'LLM provider', acc: 0xbfe9ff, css: '#dff4ff' },
+};
+let gws = [];
+function glowSprite(color, size, opacity) {
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX_GLOW, color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity }));
+  sp.scale.set(size, size, 1); return sp;
+}
+function disposeGateways() {
+  gws.forEach(g => {
+    [g.group, g.nameLabel, g.tube, g.linkLabel].forEach(o => scene.remove(o));
+    g.packets.forEach(p => scene.remove(p.s));
+    g.vcs.forEach(v => { [v.node, v.tube, v.label].forEach(o => scene.remove(o)); v.packets.forEach(p => scene.remove(p.s)); });
+  });
+  gws = [];
+}
+function buildGateways(list) {
+  disposeGateways();
+  const n = Math.max(1, Math.min(3, list.length)), pos = GW_POS[n];
+  list.slice(0, 3).forEach((info, i) => {
+    const P = new THREE.Vector3(...pos[i]);
+    const group = new THREE.Group(); group.position.copy(P);
+    const pal = PALETTE[i % PALETTE.length];
+    const core = new THREE.Mesh(new THREE.SphereGeometry(3.8, 44, 44), new THREE.MeshLambertMaterial({ map: planetTexture(pal.kind) }));
+    const tilt = 1.2 + i * .28;
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(6.6, 0.34, 8, 80), new THREE.MeshBasicMaterial({ color: pal.acc, transparent: true, opacity: .8 }));
+    const ring2 = new THREE.Mesh(new THREE.TorusGeometry(8.8, 0.14, 8, 80), new THREE.MeshBasicMaterial({ color: pal.acc, transparent: true, opacity: .45 }));
+    ring.rotation.x = tilt; ring2.rotation.x = tilt;
+    const glow = glowSprite(pal.acc, 30, .55);
+    group.add(core, ring, ring2, glow); scene.add(group);
+    const nameLabel = label(info.name, pal.css, 3.6); nameLabel.position.set(P.x - 7, P.y + 12, P.z); scene.add(nameLabel);
+    const mid = GATE.clone().lerp(P, .55); mid.y += 3.5; mid.z += (i === 1 ? 3 : -2);
+    const curve = new THREE.CatmullRomCurve3([GATE.clone(), GATE.clone().lerp(P, .3).add(new THREE.Vector3(0, 3, 2)), mid, P.clone().add(new THREE.Vector3(-4, 0, 0))]);
+    const tubeMat = new THREE.MeshBasicMaterial({ color: pal.acc, transparent: true, opacity: .85 });
+    const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 48, 0.42, 8, false), tubeMat); scene.add(tube);
+    const linkLabel = label('Gateway API', pal.css, 2.8); linkLabel.position.copy(mid).add(new THREE.Vector3(0, 6, 0)); linkLabel.visible = false; scene.add(linkLabel);   // kept hidden: planets show only their names
+    const packets = []; for (let k = 0; k < 9; k++) { const sp = glowSprite(pal.acc, 2.6, 0); scene.add(sp); packets.push({ s: sp, u: k / 9 }); }
+    const vcs = (info.vcs || []).slice(0, 3).map((vi, j) => {
+      const pv = PROV[vi.provider] || PROV.other, off = VC_OFF[j];
+      const V = P.clone().add(new THREE.Vector3(...off));
+      const node = new THREE.Group(); node.position.copy(V);
+      const core = new THREE.Mesh(new THREE.OctahedronGeometry(1.9, 0), new THREE.MeshBasicMaterial({ color: pv.acc }));
+      const wire = new THREE.Mesh(new THREE.OctahedronGeometry(2.9, 0), new THREE.MeshBasicMaterial({ color: pv.acc, wireframe: true, transparent: true, opacity: .55 }));
+      const nglow = glowSprite(pv.acc, 11, .6);
+      node.add(core, wire, nglow); scene.add(node);
+      const lab = label(pv.label, pv.css, 2.5); lab.position.set(V.x, V.y - 5.2, V.z); scene.add(lab);
+      const a = P.clone().add(new THREE.Vector3(4.8, 0, 0)), b = V.clone().add(new THREE.Vector3(-3.2, 0, 0));
+      const mid = a.clone().lerp(b, .5); mid.y += (j === 0 ? 1.6 : -1.6) * (off[1] === 0 ? 0 : 1); mid.z += 1.5;
+      const vcurve = new THREE.CatmullRomCurve3([a, a.clone().lerp(b, .3).add(new THREE.Vector3(0, 0, 1)), mid, b]);
+      const vmat = new THREE.MeshBasicMaterial({ color: pv.acc, transparent: true, opacity: .8 });
+      const vtube = new THREE.Mesh(new THREE.TubeGeometry(vcurve, 32, 0.2, 6, false), vmat); scene.add(vtube);
+      const vpk = []; for (let k = 0; k < 5; k++) { const sp = glowSprite(pv.acc, 2.0, 0); scene.add(sp); vpk.push({ s: sp, u: k / 5 }); }
+      return { id: vi.id, name: vi.name, prov: pv, pos: V, node, core, wire, glow: nglow, label: lab, curve: vcurve, tube: vtube, tubeMat: vmat, packets: vpk, cut: false };
+    });
+    gws.push({ id: info.id, name: info.name, pal, pos: P, vcs, group, core, ring, ring2, glow, nameLabel, curve, tube, tubeMat, linkLabel, packets, cut: false });
+  });
+}
+buildGateways([{ id: 'gw0', name: 'LLM Gateway' }]);
+
+// ───────────────────────────── agents
+const swarm = new THREE.Group(); scene.add(swarm);
+const agents = new Map();      // id -> view
+const geoAgent = new THREE.SphereGeometry(0.62, 14, 14);
+const edgePos = new Float32Array(300 * 6), edgeCol = new Float32Array(300 * 6);
+const edgeGeo = new THREE.BufferGeometry();
+edgeGeo.setAttribute('position', new THREE.BufferAttribute(edgePos, 3).setUsage(THREE.DynamicDrawUsage));
+edgeGeo.setAttribute('color', new THREE.BufferAttribute(edgeCol, 3).setUsage(THREE.DynamicDrawUsage));
+const edges = new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: .9, blending: THREE.AdditiveBlending, depthWrite: false }));
+edges.frustumCulled = false; scene.add(edges);
+
+function slot(i) {                       // low-discrepancy points: any prefix of agents is evenly spread
+  const y = 1 - 2 * ((i * 0.6180339887 + 0.13) % 1), r = Math.sqrt(Math.max(0, 1 - y * y)), phi = i * 2.399963;
+  const R = 13 + 0.14 * (S.target || 40) + hash(i) * 7;     // bigger shell for bigger swarms
+  return new THREE.Vector3(Math.cos(phi) * r * R, y * R * 0.82, Math.sin(phi) * r * R);
+}
+let spawnIndex = 0;
+function addAgent(id, role, parent) {
+  const base = new THREE.Color(COL[role] || COL.worker);
+  const mesh = new THREE.Mesh(geoAgent, new THREE.MeshBasicMaterial({ color: base.clone() }));
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX_GLOW, color: base.clone(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: .55 }));
+  const hs = 4.4 - 1.9 * Math.min(1, (S.target || 40) / 100); halo.scale.set(hs, hs, 1);   // smaller halos in dense swarms
+  const g = new THREE.Group(); g.add(mesh, halo); swarm.add(g);
+  const idx = spawnIndex++;
+  const v = { id, role, g, mesh, halo, base, slot: slot(idx), idx, born: performance.now(), pulse: 0, flash: new THREE.Color(0, 0, 0), flashAmt: 0, frozen: false, edge: 0 };
+  const par = parent && agents.get(parent);
+  g.position.copy(par ? par.g.position : v.slot.clone().multiplyScalar(0.3));
+  g.scale.setScalar(0.01);
+  agents.set(id, v);
+  if (par) arc(par, v);
+  ring(g.position.clone().applyMatrix4(swarm.matrixWorld), COL[role] || COL.worker, 7, .55, .5);
+  return v;
+}
+function clearAgents() { agents.forEach(v => swarm.remove(v.g)); agents.clear(); spawnIndex = 0; }
+
+// ───────────────────────────── pulses (glowing packets between two points)
+const pulses = [];
+const POOL = [];
+for (let i = 0; i < 220; i++) { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX_GLOW, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0 })); s.scale.set(1.5, 1.5, 1); s.visible = false; scene.add(s); POOL.push(s); }
+function wpos(obj) { const v = new THREE.Vector3(); obj.getWorldPosition(v); return v; }
+function pulse(from, to, color, dur = .55, size = 1.6, then = null) {
+  const s = POOL.pop(); if (!s) return;
+  s.material.color.setHex(color); s.scale.setScalar(size); s.visible = true;
+  pulses.push({ s, from, to, t0: performance.now(), dur: dur * 1000, then });
+}
+function arc(a, b) { pulse(wpos(a.g), wpos(b.g), 0xffffff, .45, 2.2); }
+
+const rings = [];
+function ring(pos, color, size, dur, opacity = .9) {
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX_RING, color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity }));
+  s.position.copy(pos); s.scale.setScalar(1); scene.add(s);
+  rings.push({ s, t0: performance.now(), dur: dur * 1000, size, op: opacity });
+}
+const shards = [];
+function shatter(gw, color) {
+  const n = 160, p = new Float32Array(n * 3), v = [];
+  for (let i = 0; i < n; i++) { const k = gw.curve.getPoint(Math.random()); p[i*3] = k.x; p[i*3+1] = k.y; p[i*3+2] = k.z; v.push(new THREE.Vector3(rnd(-1, 1), rnd(-.4, 1.2), rnd(-1, 1)).multiplyScalar(rnd(4, 15))); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(p, 3));
+  const m = new THREE.PointsMaterial({ size: 1.6, map: TEX_GLOW, color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+  const pts = new THREE.Points(g, m); scene.add(pts);
+  shards.push({ pts, v, t0: performance.now() });
+}
+
+// ───────────────────────────── state
+const S = { fx: {}, gateways: [], links: {}, scenario: 'swarm', count: 60, pace: 30, armed: true, running: false, level: 'NORMAL', score: 0, incident: false, cut: false, link: 'up', t: 0, target: 0, shake: 0, scoreDisp: 0 };
+let boardColor = new THREE.Color(0x34e0ff), boardTarget = new THREE.Color(0x34e0ff);
+const hist = [];
+
+// ───────────────────────────── websocket
+let ws, wsTries = 0;
+function wsURL() {
+  const q = new URLSearchParams(location.search).get('ws');
+  if (q) return q;
+  const u = new URL('ws', location.href); u.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'; return u.href;
+}
+function connect() {
+  ws = new WebSocket(wsURL());
+  ws.onopen = () => { wsTries = 0; $('conn').style.display = 'none'; };
+  ws.onclose = () => { $('conn').style.display = 'block'; setTimeout(connect, Math.min(4000, 500 + 500 * wsTries++)); };
+  ws.onmessage = e => handle(JSON.parse(e.data));
+}
+const send = o => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); };
+
+function handle(m) {
+  switch (m.type) {
+    case 'hello': buildGateways(m.gateways && m.gateways.length ? m.gateways : [{ id: 'gw0', name: 'LLM gateway' }]); S.gateways = m.gateways || []; S.links = m.links || {}; renderDrivers(m.drivers); renderLinks(); break;
+    case 'tick': onTick(m); break;
+    case 'started': onStarted(m); break;
+    case 'mitigation': onMitigation(m.m); break;
+    case 'link': S.links[m.gw] = { state: m.state, http: m.http, ms: m.ms, sim: m.sim }; renderLinks(); break;
+    case 'reset': onReset(); break;
+  }
+}
+
+function onStarted(m) {
+  clearAgents(); resetVisuals();
+  S.fx = {}; gws.forEach(g => { g.keyed = false; }); Object.keys(S.links).forEach(k => { S.links[k] = { state: 'up', http: 0, ms: 0 }; }); renderLinks();
+  S.running = true; S.scenario = m.scenario; S.target = m.target; S.armed = m.armed; S.incident = false; S.cut = false;
+  hist.length = 0; $('logbox').innerHTML = ''; $('summary').classList.remove('show'); $('mit').style.display = 'none';
+  setBanner(null); $('kill').disabled = false; $('start').textContent = 'Restart';
+}
+function onReset() {
+  clearAgents(); resetVisuals();
+  S.fx = {}; gws.forEach(g => { g.keyed = false; }); Object.keys(S.links).forEach(k => { S.links[k] = { state: 'up', http: 0, ms: 0 }; }); renderLinks();
+  S.running = false; S.incident = false; S.cut = false; S.level = 'NORMAL'; S.score = 0; hist.length = 0;
+  $('logbox').innerHTML = ''; $('summary').classList.remove('show'); $('mit').style.display = 'none';
+  setBanner(null); $('kill').disabled = true; $('start').textContent = 'Start'; setStatus('STANDBY', '');
+  updateHud({ score: 0, level: 'NORMAL', comp: {}, raw: {}, totals: { secret_reads: 0, llm_calls: 0 }, agents: [] });
+}
+function resetVisuals() {
+  gateNode.visible = true;
+  gws.forEach(g => {
+    g.cut = false; g.tube.visible = true; g.linkLabel.visible = false; g.packets.forEach(p => p.s.visible = true);
+    g.tubeMat.color.setHex(g.pal.acc); g.tubeMat.opacity = .85;
+    g.core.material.color.setHex(0xffffff); g.ring.material.color.setHex(g.pal.acc); g.ring2.material.color.setHex(g.pal.acc);
+    g.glow.material.opacity = .55; g.glow.material.color.setHex(g.pal.acc);
+    setLabel(g.nameLabel, g.name, g.pal.css); setLabel(g.linkLabel, 'Gateway API', g.pal.css);
+    g.vcs.forEach(v => {
+      v.cut = false; v.tube.visible = true; v.tubeMat.color.setHex(v.prov.acc); v.packets.forEach(p => p.s.visible = true);
+      v.core.material.color.setHex(v.prov.acc); v.wire.material.color.setHex(v.prov.acc); v.glow.material.opacity = .6; setLabel(v.label, v.prov.label, v.prov.css);
+    });
+  });
+  boardTarget.setHex(0x34e0ff);
+}
+
+function onTick(m) {
+  S.t = m.t; S.level = m.level; S.score = m.score; S.incident = m.incident;
+  // agents: create / update
+  const seen = new Set();
+  for (const [id, r, st, parent] of m.agents) {
+    seen.add(id);
+    let v = agents.get(id);
+    if (!v) v = addAgent(id, ROLE[r] || 'worker', parent);
+    else if (ROLE[r] && v.role !== ROLE[r] && !v.frozen) {
+      v.role = ROLE[r]; v.base.setHex(COL[v.role]); v.mesh.material.color.copy(v.base); v.halo.material.color.copy(v.base);
+      ring(wpos(v.g), COL[v.role], 9, .8, .9); v.pulse = 1.5;
+    }
+    if (st === 'x' && !v.frozen) { v.frozen = true; v.base.setHex(COL.frozen); v.mesh.material.color.copy(v.base); v.halo.material.color.copy(v.base); v.halo.material.opacity = .25; }
+  }
+  // events -> pulses
+  const budget = { n: 36 };
+  for (const e of m.events) {
+    const v = agents.get(e.a); if (!v) continue;
+    v.pulse = 1;
+    const fromW = () => wpos(v.g);
+    if (e.k === 'read' || e.k === 'write') {
+      v.edge = 1; v.edgeColor = e.k === 'write' ? 0xff4fd8 : 0x34e0ff;
+      if (budget.n-- > 0) pulse(e.k === 'write' ? fromW() : CENTER, e.k === 'write' ? CENTER : fromW(), v.edgeColor, .5, 1.5);
+    } else if (e.k === 'llm') {
+      if (budget.n-- > 0) { const gw = gws[e.a % gws.length]; pulse(fromW(), GATE, 0xffb020, .55, 1.9, () => { if (!S.cut && gw && !gw.cut) pulse(GATE, gw.pos, 0xffb020, .5, 2.2, () => {
+        const live = gw.vcs.filter(v => !v.cut); if (live.length) { const v = live[Math.floor(Math.random() * live.length)]; pulse(gw.pos, v.pos, v.prov.acc, .5, 2.0); }
+      }); }); }
+    } else if (e.k === 'secret') {
+      if (budget.n-- > 0) pulse(vault.position, fromW(), 0xff3050, .6, 2.0);
+      vaultGlow.material.opacity = 1;
+    }
+  }
+  updateHud(m);
+  appendLogs(m.logs);
+  boardTarget.setHex(S.cut ? 0x7fb8ff : S.level === 'CRITICAL' ? COL.alarm : S.level === 'ELEVATED' ? COL.amber : 0x34e0ff);
+  if (S.level === 'CRITICAL' && !S.incident && !$('banner').classList.contains('show')) setBanner('crit', 'Anomaly: critical', 'Watchtower correlating shared-file writes, spawns, secret reads and LLM calls');
+}
+
+// ───────────────────────────── kill switch visuals
+function onMitigation(mit) {
+  $('mit').style.display = 'block';
+  S.incident = true;
+  const icon = { pending: '○', running: '◐', done: '●', failed: '✕', simulated: '◇', skipped: '◇' };
+  $('steps').innerHTML = mit.steps.map(s => `<div class="step ${s.status}"><span class="ic">${icon[s.status] || '○'}</span><div>${s.label}${s.detail ? `<small>${esc(s.detail)}</small>` : ''}</div></div>`).join('');
+  const st = id => (mit.steps.find(s => s.id === id) || {}).status;
+  if (st('freeze') === 'done' && !S.fx.freeze) {
+    S.fx.freeze = 1; ring(CENTER.clone(), COL.alarm, 120, 1.3, 1); setBanner('crit', 'Incident: kill switch engaged', mit.manual ? 'manual kill' : 'auto-mitigation');
+    $('flash').classList.add('on'); setTimeout(() => $('flash').classList.remove('on'), 80);
+    S.shake = 1; $('kill').disabled = true; setStatus('CRITICAL', 'critical');
+  }
+  gws.forEach(g => {                       // this gateway's swarm key was revoked: its link turns red
+    if (st('revoke:' + g.id) === 'done' && !g.keyed) {
+      g.keyed = true; g.tubeMat.color.setHex(0xff3050);   // soft kill shows as the red link; the details are in the kill-switch panel
+    }
+  });
+  let allVc = true;
+  gws.forEach(g => {                       // hard kill: each Fabric VC behind the gateway is cut and shatters
+    g.vcs.forEach(v => {
+      const sv = st(v.id);
+      if (['done', 'simulated'].includes(sv) && !v.cut) {
+        v.cut = true; shatter(v, 0xff6b7f); v.tube.visible = false; v.packets.forEach(p => p.s.visible = false);
+        v.core.material.color.setHex(0x3c4452); v.wire.material.color.setHex(0x2a3943); v.glow.material.opacity = .05; setLabel(v.label, 'VC cut', '#6f8797');
+        ring(v.pos.clone(), 0xff6b7f, 14, .9, .9);
+      }
+      if (!v.cut) allVc = false;
+    });
+    if (g.vcs.length && g.vcs.every(v => v.cut) && !g.cut) {      // no upstream left: the gateway planet goes dark
+      g.cut = true; g.core.material.color.setHex(0x3c4452); g.ring.material.color.setHex(0x3a4b57); g.ring2.material.color.setHex(0x2a3943); g.glow.material.opacity = .05;
+      setLabel(g.nameLabel, g.name + ' unreachable', '#6f8797');
+    }
+  });
+  if (allVc && gws.some(g => g.vcs.length) && !S.fx.vc) {
+    S.fx.vc = 1; S.cut = true; gateNode.visible = false;
+    ring(CENTER.clone(), COL.ice, 140, 1.8, .8);
+  }
+  if (mit.done && mit.summary && !S.fx.sum) {
+    S.fx.sum = 1; showSummary(mit.summary);
+    setBanner('ok', 'Contained', `${mit.summary.agents_at_cut} of ${mit.summary.target} agents, LLM path cut at T+${mit.summary.t_cut}s`);
+    setStatus('CONTAINED', 'contained'); $('start').textContent = 'Start';
+  }
+}
+function showSummary(s) {
+  const f = v => v == null ? 'n/a' : v;
+  $('sumTitle').textContent = 'CONTAINED';
+  $('sumTable').innerHTML =
+    `<tr><td>Agents at the cut</td><td>${s.agents_at_cut} of ${s.target}</td></tr>` +
+    `<tr><td>Detected after</td><td>T+${f(s.t_detect)}s</td></tr>` +
+    `<tr><td>Critical after</td><td>T+${f(s.t_critical)}s</td></tr>` +
+    `<tr><td>LLM path cut at</td><td>T+${f(s.t_cut)}s</td></tr>` +
+    `<tr><td>Secret reads before the cut</td><td>${s.secret_reads}</td></tr>` +
+    `<tr><td>LLM calls before the cut</td><td>${s.llm_calls}</td></tr>`;
+  $('summary').classList.add('show');
+}
+
+// ───────────────────────────── HUD
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function setBanner(kind, text, sub) {
+  const b = $('banner');
+  if (!kind) { b.classList.remove('show'); return; }
+  b.className = 'hud show ' + kind; $('bannerText').textContent = text; $('bannerSub').textContent = sub || '';
+}
+function setStatus(text, cls) { const s = $('status'); s.textContent = text; s.className = cls || ''; }
+function renderLinks() {
+  const gl = (S.gateways && S.gateways.length) ? S.gateways : [{ id: 'gw0', name: 'LLM gateway' }];
+  $('links').innerHTML = gl.map(g => {
+    const l = S.links[g.id] || { state: 'up', http: 0, ms: 0 };
+    const nm = { up: 'UP', cut: 'CUT', down: 'DOWN', degraded: 'DEGRADED' }[l.state] || String(l.state).toUpperCase();
+    const det = l.state === 'cut' ? (l.sim ? 'cut in the UI only (simulated network cut)' : `verified: the swarm key is rejected (HTTP ${l.http || 401})`)
+      : l.http ? `real request through the swarm key: HTTP ${l.http}, ${l.ms} ms` : 'simulated';
+    return `<div class="lk ${l.state}"><span class="dot"></span><div><b>${esc(g.name)}: ${nm}</b><small>${det}</small></div></div>`;
+  }).join('');
+}
+function renderDrivers(d) {  // d = driver names from the backend
+  const vcs = (S.gateways || []).flatMap(g => g.vcs || []), real = vcs.filter(v => v.real).length;
+  $('drivers').innerHTML =
+    `<div>kill switch</div>` +
+    `<div class="${d.includes('litellm') ? 'real' : 'off'}">soft kill: gateway key revoke &nbsp;${d.includes('litellm') ? 'real, verified' : 'not configured'}</div>` +
+    `<div class="${real ? 'real' : 'simu'}">hard kill: Fabric VC delete &nbsp;${vcs.length ? `${real} of ${vcs.length} real` : 'none'}${real < vcs.length ? ' (rest simulated)' : ''}</div>`;
+}
+function appendLogs(logs) {
+  if (!logs || !logs.length) return;
+  const box = $('logbox');
+  for (const l of logs) {
+    const d = document.createElement('div'); d.className = 'ln ' + l.lvl;
+    d.innerHTML = `<span class="t">T+${l.t.toFixed(1)}</span> <span class="s">${esc(l.src)}</span> ${esc(l.msg)}`;
+    box.appendChild(d);
+  }
+  while (box.childElementCount > 120) box.removeChild(box.firstChild);
+  box.scrollTop = box.scrollHeight;
+}
+function updateHud(m) {
+  $('kAgents').textContent = m.agents.length;
+  $('kSecrets').textContent = m.totals.secret_reads; $('kLlm').textContent = m.totals.llm_calls;
+  $('kSecW').classList.toggle('hot', m.totals.secret_reads > 0);
+  const sc = m.score, lv = m.level;
+  $('score').textContent = Math.round(sc);
+  const cls = lv === 'CRITICAL' ? 'critical' : lv === 'ELEVATED' ? 'elevated' : '';
+  $('score').className = cls;
+  const bar = $('bar').firstElementChild; bar.style.width = sc + '%'; bar.style.background = lv === 'CRITICAL' ? '#ff3050' : lv === 'ELEVATED' ? '#ffb020' : '#4dffb4';
+  if (!S.incident && S.running) setStatus(lv === 'NORMAL' ? 'NOMINAL' : lv, cls);
+  RULES.forEach(([id], i) => {
+    const el = $('rule' + i); const v = (m.comp && m.comp[id]) || 0;
+    el.classList.toggle('on', v > 0.3); el.lastElementChild.style.width = Math.round(v * 100) + '%';
+  });
+  hist.push(sc); if (hist.length > 150) hist.shift(); drawSpark();
+}
+function drawSpark() {
+  const c = $('spark'), g = c.getContext('2d'), w = c.width, h = c.height;
+  g.clearRect(0, 0, w, h);
+  g.strokeStyle = 'rgba(111,135,151,.35)'; g.setLineDash([3, 4]); g.lineWidth = 1;
+  [28, 60].forEach(v => { const y = h - v / 100 * h; g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); });
+  g.setLineDash([]);
+  if (hist.length < 2) return;
+  const grad = g.createLinearGradient(0, h, 0, 0); grad.addColorStop(0, '#4dffb4'); grad.addColorStop(.35, '#ffb020'); grad.addColorStop(.7, '#ff3050');
+  g.strokeStyle = grad; g.lineWidth = 2; g.beginPath();
+  hist.forEach((v, i) => { const x = i / 149 * w, y = h - v / 100 * h; i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke();
+}
+$('rules').innerHTML = RULES.map(([id, name], i) => `<div class="rule" id="rule${i}"><b>${id}</b>${name}<s></s></div>`).join('');
+
+// ───────────────────────────── controls
+const scnBtns = [...document.querySelectorAll('.scn')];
+function pickScenario(s) { S.scenario = s; scnBtns.forEach(b => b.classList.toggle('sel', b.dataset.s === s)); }
+scnBtns.forEach(b => b.onclick = () => pickScenario(b.dataset.s));
+$('slider').oninput = e => { S.count = +e.target.value; $('count').textContent = S.count; };
+$('pace').oninput = e => { S.pace = +e.target.value; $('paceTxt').textContent = S.pace + ' agents / 15 s'; };
+function setArmed(v) { S.armed = v; $('armed').classList.toggle('on', v); $('armedText').textContent = v ? 'Watchtower armed' : 'Detect only (no auto cut)'; send({ cmd: 'armed', value: v }); }
+$('armed').onclick = () => setArmed(!S.armed);
+const start = (armed) => send({ cmd: 'start', scenario: S.scenario, count: S.count, pace: S.pace / 15, armed: armed === undefined ? S.armed : armed });
+$('start').onclick = () => start();
+$('kill').onclick = () => send({ cmd: 'kill' });
+$('reset').onclick = () => send({ cmd: 'reset' });
+$('again').onclick = () => { setArmed(false); start(false); };
+addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' && e.target.type !== 'range') return;
+  if (e.key === '1') pickScenario('swarm'); else if (e.key === '2') pickScenario('runaway'); else if (e.key === '3') pickScenario('baseline');
+  else if (e.code === 'Space') { e.preventDefault(); start(); }
+  else if (e.key.toLowerCase() === 'k') { if (!$('kill').disabled) send({ cmd: 'kill' }); }
+  else if (e.key.toLowerCase() === 'r') send({ cmd: 'reset' });
+  else if (e.key.toLowerCase() === 'a') setArmed(!S.armed);
+});
+
+// ───────────────────────────── render loop
+const clock = new THREE.Clock();
+const tmp = new THREE.Vector3(), tmpC = new THREE.Color();
+function frame() {
+  requestAnimationFrame(frame);
+  const dt = Math.min(clock.getDelta(), .05), now = performance.now(), T = now / 1000;
+  // idle camera returns to auto-rotate after a while
+  if (!controls.autoRotate && now - userTouched > 20000) controls.autoRotate = true;
+  controls.update();
+
+  galaxy.rotation.y += dt * 0.1;
+  swarm.rotation.y += dt * (S.cut ? 0.02 : 0.09);
+  board.rotation.y += dt * .35; board.rotation.x += dt * .12;
+  boardColor.lerp(boardTarget, Math.min(1, dt * 4));
+  boardWire.material.color.copy(boardColor); boardCore.material.color.copy(boardColor); boardGlow.material.color.copy(boardColor);
+  const hot = S.level === 'CRITICAL' && !S.cut;
+  const bs = 1 + (hot ? .08 * Math.sin(T * 14) : .03 * Math.sin(T * 2));
+  board.scale.setScalar(bs); boardGlow.material.opacity = hot ? .95 : .7;
+  vault.rotation.y += dt * .5; vault.rotation.x += dt * .2;
+  vaultGlow.material.opacity = Math.max(.25, vaultGlow.material.opacity - dt * 1.6);
+  gws.forEach(g => { g.ring.rotation.z += dt * (g.cut ? .02 : .15); g.ring2.rotation.z -= dt * (g.cut ? .01 : .1); g.core.rotation.y += dt * (g.cut ? .03 : .25); });
+
+  // link packets
+  gws.forEach(g => g.vcs.forEach(v => { v.node.rotation.y += dt * (v.cut ? .05 : .8); if (!v.cut) v.packets.forEach(p => { p.u = (p.u + dt * .3) % 1; p.s.position.copy(v.curve.getPoint(p.u)); p.s.material.opacity = Math.sin(p.u * Math.PI); }); }));
+  gws.forEach(g => { if (!g.cut) g.packets.forEach(p => { p.u = (p.u + dt * .35) % 1; p.s.position.copy(g.curve.getPoint(p.u)); p.s.material.opacity = Math.sin(p.u * Math.PI); }); });
+
+  // agents
+  const wp = new THREE.Vector3();
+  let ei = 0;
+  agents.forEach(v => {
+    const age = Math.min(1, (now - v.born) / 450);
+    v.g.position.lerp(v.slot, Math.min(1, dt * 2.4));
+    const pulseK = v.pulse > 0 ? v.pulse : 0; v.pulse = Math.max(0, v.pulse - dt * 3.2);
+    const sc = (0.2 + .8 * easeOut(age)) * (1 + .75 * pulseK) * (v.role === 'rogue' && !v.frozen ? 1.18 : 1);
+    v.g.scale.setScalar(sc);
+    v.halo.material.opacity = (v.frozen ? .22 : .5) + .5 * pulseK;
+    // edge to the blackboard
+    v.edge = Math.max(0, v.edge - dt * 2.4);
+    v.g.getWorldPosition(wp);
+    if (ei < 300) {
+      const k = ei * 6;
+      edgePos[k] = CENTER.x; edgePos[k+1] = CENTER.y; edgePos[k+2] = CENTER.z; edgePos[k+3] = wp.x; edgePos[k+4] = wp.y; edgePos[k+5] = wp.z;
+      const base = v.frozen ? 0.03 : 0.07, a = base + v.edge * .85;
+      tmpC.setHex(v.edge > 0.05 ? (v.edgeColor || 0x34e0ff) : COL[v.role] || COL.worker);
+      edgeCol[k] = tmpC.r * a; edgeCol[k+1] = tmpC.g * a; edgeCol[k+2] = tmpC.b * a; edgeCol[k+3] = tmpC.r * a * .25; edgeCol[k+4] = tmpC.g * a * .25; edgeCol[k+5] = tmpC.b * a * .25;
+      ei++;
+    }
+  });
+  edgeGeo.setDrawRange(0, ei * 2); edgeGeo.attributes.position.needsUpdate = true; edgeGeo.attributes.color.needsUpdate = true;
+
+  // pulses
+  for (let i = pulses.length - 1; i >= 0; i--) {
+    const p = pulses[i], u = (now - p.t0) / p.dur;
+    if (u >= 1) { p.s.visible = false; p.s.material.opacity = 0; POOL.push(p.s); pulses.splice(i, 1); if (p.then) p.then(); continue; }
+    p.s.position.lerpVectors(p.from, p.to, u); p.s.material.opacity = Math.sin(Math.min(1, u) * Math.PI) * .95;
+  }
+  for (let i = rings.length - 1; i >= 0; i--) {
+    const r = rings[i], u = (now - r.t0) / r.dur;
+    if (u >= 1) { scene.remove(r.s); r.s.material.dispose(); rings.splice(i, 1); continue; }
+    r.s.scale.setScalar(1 + easeOut(u) * r.size); r.s.material.opacity = r.op * (1 - u);
+  }
+  for (let i = shards.length - 1; i >= 0; i--) {
+    const s = shards[i], u = (now - s.t0) / 1800;
+    if (u >= 1) { scene.remove(s.pts); s.pts.geometry.dispose(); shards.splice(i, 1); continue; }
+    const pos = s.pts.geometry.attributes.position;
+    for (let k = 0; k < s.v.length; k++) { pos.array[k*3] += s.v[k].x * dt; pos.array[k*3+1] += s.v[k].y * dt - 6 * dt * u; pos.array[k*3+2] += s.v[k].z * dt; }
+    pos.needsUpdate = true; s.pts.material.opacity = 1 - u;
+  }
+  // camera shake while critical / at the cut
+  if (S.shake > 0) { S.shake = Math.max(0, S.shake - dt * 1.4); camera.position.x += rnd(-1, 1) * S.shake * .5; camera.position.y += rnd(-1, 1) * S.shake * .5; }
+  else if (hot && S.score > 60) { const a = (S.score - 60) / 40 * .12; camera.position.x += rnd(-a, a); camera.position.y += rnd(-a, a); }
+  composer.render();
+}
+const easeOut = u => 1 - Math.pow(1 - u, 3);
+
+// ambient standby: a few calm nodes so the scene is alive before the first run
+setStatus('STANDBY', '');
+connect();
+frame();
+window.__watchtower = { S, agents, scene, camera, send };
+})();
+</script>
+</body>
+</html>

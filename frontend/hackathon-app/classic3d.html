@@ -1,0 +1,541 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Watchtower for AI Agents</title>
+<style>
+  :root {
+    --bg: #04070b; --panel: rgba(8, 15, 22, .8); --line: #16303f; --text: #c8d8e2; --dim: #6f8797;
+    --ice: #7fd6ff; --mint: #4dffb4; --amber: #ffb020; --alarm: #ff3050; --sec: #b28cff; --dev: #4fd8c8; --cs: #7fe08a;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+    --head: "Bahnschrift", "DIN Alternate", "Arial Narrow", "Helvetica Neue", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font-family: var(--mono); font-size: 12px; overflow: hidden; }
+  canvas#scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  #flash { position: fixed; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at center, rgba(255,48,80,0) 35%, rgba(255,48,80,.5) 100%); transition: opacity .9s ease-out; }
+  #flash.on { opacity: 1; transition: none; }
+  .hud { position: fixed; pointer-events: none; }
+  .panel { pointer-events: auto; background: var(--panel); border: 1px solid var(--line); backdrop-filter: blur(6px); padding: 12px 14px; }
+  .panel h3 { margin: 0 0 8px; font: 600 10px var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim); }
+  #brand { top: 16px; left: 18px; }
+  #brand .name { font: 700 22px var(--head); letter-spacing: .22em; color: #eaf6ff; }
+  #brand .sub { color: var(--dim); letter-spacing: .12em; margin-top: 2px; }
+  #status { display: inline-block; margin-top: 10px; padding: 3px 10px; border: 1px solid currentColor; font: 700 11px var(--mono); letter-spacing: .2em; color: var(--mint); }
+  #status.watch { color: var(--amber); } #status.alarm { color: var(--alarm); } #status.cut { color: var(--ice); }
+  #left { top: 112px; left: 18px; width: 300px; max-height: calc(100% - 130px); overflow: auto; scrollbar-width: thin; }
+  .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  button.b { padding: 9px 6px; background: transparent; border: 1px solid var(--line); color: var(--text); font: 700 11px var(--mono); letter-spacing: .12em; cursor: pointer; text-transform: uppercase; }
+  button.b:hover:not(:disabled) { border-color: var(--ice); color: #fff; }
+  button.go { background: var(--ice); color: #04121c; border-color: var(--ice); } button.go:hover:not(:disabled) { background: #a6e5ff; color: #04121c; }
+  button.nx { border-color: var(--amber); color: var(--amber); } button.nx:hover:not(:disabled) { background: var(--amber); color: #1b1200; }
+  button:disabled { opacity: .35; cursor: default; }
+  .toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; margin-top: 10px; }
+  .toggle i { width: 34px; height: 16px; border: 1px solid var(--line); position: relative; flex: none; }
+  .toggle i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; background: var(--dim); transition: all .15s; }
+  .toggle.on i { border-color: var(--mint); } .toggle.on i::after { left: 20px; background: var(--mint); }
+  .seg { display: grid; grid-template-columns: 1fr 1fr; margin-top: 6px; }
+  .seg button { padding: 7px 4px; background: transparent; border: 1px solid var(--line); color: var(--dim); font: 600 10px var(--mono); letter-spacing: .06em; cursor: pointer; }
+  .seg button.sel { color: #eaf6ff; border-color: var(--ice); background: rgba(127,214,255,.08); }
+  .step { padding: 6px 0 6px 10px; border-top: 1px solid rgba(22,48,63,.7); border-left: 3px solid transparent; color: var(--dim); }
+  .step:first-of-type { border-top: 0; }
+  .step.done { color: #8fb0c2; border-left-color: var(--mint); } .step.cur { color: #fff; border-left-color: var(--amber); }
+  .chips { display: grid; gap: 6px; }
+  .chip { display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--line); padding: 6px 8px; }
+  .chip b { font: 700 11px var(--head); letter-spacing: .08em; } .chip span { font-size: 10px; letter-spacing: .12em; color: var(--mint); }
+  .chip.sec { border-left: 3px solid var(--sec); } .chip.dev { border-left: 3px solid var(--dev); } .chip.cs { border-left: 3px solid var(--cs); }
+  .chip.blocked span { color: var(--alarm); }
+  .keys { color: var(--dim); font-size: 10px; margin-top: 10px; line-height: 1.7; }
+  .tag { display: inline-block; padding: 2px 6px; border: 1px solid var(--line); color: var(--dim); font-size: 10px; margin-right: 4px; }
+  .tag.real { color: var(--mint); border-color: var(--mint); } .tag.dry { color: var(--amber); border-color: var(--amber); }
+
+  #right { top: 16px; right: 18px; width: 352px; display: flex; flex-direction: column; gap: 10px; max-height: calc(100% - 32px); }
+  .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .kpi small { display: block; color: var(--dim); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
+  .kpi b { font: 700 22px var(--head); color: #eaf6ff; } .kpi.hot b { color: var(--alarm); } .kpi.grey b { color: #8a98a3; }
+  .lk { display: flex; align-items: center; gap: 10px; padding: 5px 0; border-top: 1px solid rgba(22,48,63,.7); }
+  .lk:first-child { border-top: 0; }
+  .lk .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--mint); box-shadow: 0 0 9px var(--mint); flex: none; }
+  .lk.cut .dot { background: var(--alarm); box-shadow: 0 0 9px var(--alarm); } .lk.down .dot, .lk.degraded .dot { background: var(--amber); box-shadow: 0 0 9px var(--amber); }
+  .lk b { font: 700 12px var(--head); letter-spacing: .08em; } .lk small { display: block; color: var(--dim); }
+  .tl { max-height: 150px; overflow-y: auto; scrollbar-width: thin; }
+  .tl div { padding: 4px 0 4px 8px; border-left: 3px solid var(--line); margin-bottom: 4px; line-height: 1.4; }
+  .tl .t0 { border-color: var(--amber); } .tl .t1 { border-color: #ff7a3d; } .tl .t2 { border-color: var(--alarm); } .tl .t3 { border-color: #ff2a8a; }
+  .tl small { color: var(--dim); }
+  #report { display: none; border-color: var(--ice); } #report.show { display: block; }
+  #reportText { max-height: 140px; overflow-y: auto; white-space: pre-wrap; font-size: 11px; line-height: 1.5; scrollbar-width: thin; }
+  #log { flex: 1; min-height: 110px; overflow: hidden; display: flex; flex-direction: column; }
+  #logbox { flex: 1; overflow-y: auto; font-size: 11px; line-height: 1.5; scrollbar-width: thin; }
+  .ln { padding: 1px 0; white-space: pre-wrap; word-break: break-word; }
+  .ln .t { color: #4b5d69; } .ln.info { color: var(--text); } .ln.warn { color: var(--amber); } .ln.alert { color: var(--alarm); } .ln.ok { color: var(--mint); } .ln .s { color: var(--dim); }
+
+  #bottom { left: 50%; transform: translateX(-50%); bottom: 18px; width: min(660px, calc(100% - 760px)); min-width: 460px; text-align: center; }
+  #narr { font: 600 17px var(--head); letter-spacing: .04em; color: #eaf6ff; line-height: 1.35; min-height: 46px; }
+  #stepname { color: var(--dim); letter-spacing: .18em; text-transform: uppercase; font-size: 10px; margin-bottom: 6px; }
+  #tiers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 10px; }
+  .tp { border: 1px solid var(--line); padding: 6px 4px; color: var(--dim); font-size: 10px; letter-spacing: .08em; }
+  .tp b { display: block; font: 700 12px var(--head); letter-spacing: .12em; }
+  .tp.on { color: #fff; } .tp.on.t0 { border-color: var(--amber); background: rgba(255,176,32,.12); } .tp.on.t1 { border-color: #ff7a3d; background: rgba(255,122,61,.14); }
+  .tp.on.t2 { border-color: var(--alarm); background: rgba(255,48,80,.16); } .tp.on.t3 { border-color: #ff2a8a; background: rgba(255,42,138,.2); }
+  #banner { top: 22px; left: 50%; transform: translateX(-50%); text-align: center; font: 700 24px var(--head); letter-spacing: .26em; text-transform: uppercase; opacity: 0; transition: opacity .35s; text-shadow: 0 0 24px currentColor; white-space: nowrap; max-width: 52vw; }
+  #banner.show { opacity: 1; } #banner.t0 { color: var(--amber); } #banner.t1 { color: #ff7a3d; } #banner.t2 { color: var(--alarm); } #banner.t3 { color: #ff2a8a; } #banner.ok { color: var(--ice); }
+  #banner small { display: block; font: 400 12px var(--mono); letter-spacing: .08em; margin-top: 6px; color: var(--text); text-shadow: none; white-space: normal; text-transform: none; }
+  #legend { left: 18px; bottom: 18px; color: var(--dim); font-size: 10px; line-height: 1.8; }
+  #legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  #conn { position: fixed; top: 4px; left: 50%; transform: translateX(-50%); color: var(--alarm); font-size: 10px; letter-spacing: .15em; display: none; }
+  @media (max-width: 1250px) { #bottom { display: none; } }
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<div id="flash"></div>
+<div id="conn">BACKEND DISCONNECTED - RETRYING</div>
+
+<div class="hud" id="brand">
+  <div class="name">WATCHTOWER</div>
+  <div class="sub">AI AGENT KILL SWITCH</div>
+  <span id="status">STANDBY</span>
+</div>
+<div class="hud" id="banner"><span id="bannerText"></span><small id="bannerSub"></small></div>
+
+<div class="hud panel" id="left">
+  <h3>Story</h3>
+  <div class="btns">
+    <button class="b go" id="start">Start</button>
+    <button class="b nx" id="next" disabled>Next</button>
+    <button class="b" id="pause" disabled>Pause</button>
+    <button class="b" id="reset">Reset</button>
+  </div>
+  <label class="toggle" id="auto"><i></i><span>Auto-run the steps</span></label>
+  <div style="margin-top:12px" id="steps"></div>
+  <h3 style="margin-top:14px">Departments</h3>
+  <div class="chips" id="depts"></div>
+  <h3 style="margin-top:14px">Kill-switch data source</h3>
+  <div class="seg"><button data-s="logs" class="sel">LiteLLM logs</button><button data-s="github">GitHub events</button></div>
+  <div class="keys" id="srcnote">AI observability: the Watchtower reads LiteLLM's request log.</div>
+  <div class="keys" style="margin-top:12px"><span class="tag" id="ghtag">GitHub</span><span class="tag" id="seen"></span></div>
+</div>
+
+<div class="hud" id="right">
+  <div class="panel kpis">
+    <div class="kpi"><small>Agents</small><b id="kAgents">0</b></div>
+    <div class="kpi" id="kBlockedW"><small>Blocked</small><b id="kBlocked">0</b></div>
+    <div class="kpi grey" id="kBrainW"><small>Brainless</small><b id="kBrain">0</b></div>
+  </div>
+  <div class="panel" id="linkp"><h3>LLM gateways</h3><div id="links"></div></div>
+  <div class="panel" id="tlp"><h3>Watchtower decisions</h3><div class="tl" id="tl"><small style="color:var(--dim)">nothing flagged yet</small></div></div>
+  <div class="panel" id="report"><h3>Incident report</h3><div id="reportText"></div></div>
+  <div class="panel" id="log"><h3>Agent and Watchtower log</h3><div id="logbox"></div></div>
+</div>
+
+<div class="hud panel" id="bottom">
+  <div id="stepname">All normal</div>
+  <div id="narr">Press Start: the agents go to work.</div>
+  <div id="tiers">
+    <div class="tp t0" data-t="0"><b>TIER 0</b>watch</div>
+    <div class="tp t1" data-t="1"><b>TIER 1</b>agent</div>
+    <div class="tp t2" data-t="2"><b>TIER 2</b>department</div>
+    <div class="tp t3" data-t="3"><b>TIER 3</b>enterprise</div>
+  </div>
+</div>
+
+<div class="hud" id="legend">
+  <div><i style="background:#b28cff"></i>Security Research</div>
+  <div><i style="background:#4fd8c8"></i>DevOps</div>
+  <div><i style="background:#7fe08a"></i>Customer Support (no GitHub)</div>
+  <div><i style="background:#ffb020"></i>watched &nbsp;<i style="background:#ff3050"></i>blocked &nbsp;<i style="background:#4a5560"></i>brainless</div>
+</div>
+
+<script src="vendor/three.min.js"></script>
+<script src="vendor/OrbitControls.js"></script>
+<script src="vendor/CopyShader.js"></script>
+<script src="vendor/LuminosityHighPassShader.js"></script>
+<script src="vendor/EffectComposer.js"></script>
+<script src="vendor/RenderPass.js"></script>
+<script src="vendor/ShaderPass.js"></script>
+<script src="vendor/MaskPass.js"></script>
+<script src="vendor/UnrealBloomPass.js"></script>
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const rnd = (a, b) => a + Math.random() * (b - a);
+const easeOut = u => 1 - Math.pow(1 - u, 3);
+
+// ───────────────────────────── the company, laid out in space
+const DEPT = {
+  sec: { name: 'Security Research', col: 0xb28cff, css: '#cdb4ff', pos: [-30, 20, 0] },
+  dev: { name: 'DevOps',            col: 0x4fd8c8, css: '#9ff0e6', pos: [-30, -6, 0] },
+  cs:  { name: 'Customer Support',  col: 0x7fe08a, css: '#b6f2bc', pos: [-30, -32, 0] },
+};
+const REPO = {
+  sec:    { name: 'sec-repo', col: 0xb28cff, css: '#cdb4ff', pos: [-8, 27, -4], size: 2.6 },
+  shared: { name: 'shared-repo',       col: 0xffc36b, css: '#ffd9a0', pos: [-8, 7, 0],   size: 3.6 },
+  dev:    { name: 'dev-repo', col: 0x4fd8c8, css: '#9ff0e6', pos: [-8, -13, -4], size: 2.6 },
+};
+const OUTSIDE = [-6, 42, -8];
+const V = (a) => new THREE.Vector3(a[0], a[1], a[2]);
+
+// ───────────────────────────── scene
+const canvas = $('scene');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setClearColor(0x04070b, 1);
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x04070b, 0.0085);
+const camera = new THREE.PerspectiveCamera(52, 1, 0.1, 600);
+camera.position.set(4, 12, 108);
+const controls = new THREE.OrbitControls(camera, canvas);
+controls.target.set(4, -2, 0);
+controls.enableDamping = true; controls.dampingFactor = 0.06;
+controls.autoRotate = true; controls.autoRotateSpeed = 0.18;
+controls.minDistance = 30; controls.maxDistance = 200;
+let touched = 0;
+canvas.addEventListener('pointerdown', () => { touched = performance.now(); controls.autoRotate = false; });
+const composer = new THREE.EffectComposer(renderer);
+composer.addPass(new THREE.RenderPass(scene, camera));
+composer.addPass(new THREE.UnrealBloomPass(new THREE.Vector2(1, 1), 0.8, 0.55, 0.16));
+function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); composer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+addEventListener('resize', resize); resize();
+
+function glowTexture(ring) {
+  const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d');
+  const grd = g.createRadialGradient(64, 64, ring ? 40 : 0, 64, 64, 64);
+  if (ring) { grd.addColorStop(0, 'rgba(255,255,255,0)'); grd.addColorStop(.78, 'rgba(255,255,255,.9)'); grd.addColorStop(1, 'rgba(255,255,255,0)'); }
+  else { grd.addColorStop(0, 'rgba(255,255,255,1)'); grd.addColorStop(.35, 'rgba(255,255,255,.35)'); grd.addColorStop(1, 'rgba(255,255,255,0)'); }
+  g.fillStyle = grd; g.fillRect(0, 0, 128, 128); return new THREE.CanvasTexture(c);
+}
+const TEX_GLOW = glowTexture(false), TEX_RING = glowTexture(true);
+function glowSprite(color, size, opacity) {
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX_GLOW, color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity, fog: false }));
+  sp.scale.set(size, size, 1); return sp;
+}
+function drawLabel(c, text, color) {
+  const g = c.getContext('2d'); g.clearRect(0, 0, c.width, c.height);
+  const t = text.toUpperCase().split('').join(' ');
+  let fs = 34; g.font = `600 ${fs}px ui-monospace, Menlo, Consolas, monospace`;
+  const w = g.measureText(t).width; if (w > 760) { fs = Math.floor(fs * 760 / w); g.font = `600 ${fs}px ui-monospace, Menlo, Consolas, monospace`; }
+  g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = color; g.shadowColor = color; g.shadowBlur = 14; g.fillText(t, 400, 48);
+}
+function label(text, color, size) {
+  const c = document.createElement('canvas'); c.width = 800; c.height = 96; drawLabel(c, text, color);
+  const t = new THREE.CanvasTexture(c);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, transparent: true, depthWrite: false, opacity: .95, fog: false }));
+  s.scale.set(size * 8.33, size, 1); s.userData.canvas = c; s.userData.tex = t; return s;
+}
+function setLabel(s, text, color) { drawLabel(s.userData.canvas, text, color); s.userData.tex.needsUpdate = true; }
+
+scene.add(new THREE.AmbientLight(0x8a96b8, 0.9));
+const sun = new THREE.DirectionalLight(0xffffff, 1.25); sun.position.set(-30, 40, 55); scene.add(sun);
+{ // stars + floor
+  const n = 1400, p = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { const r = rnd(130, 340), a = rnd(0, 6.283), b = Math.acos(rnd(-1, 1)); p[i*3] = r*Math.sin(b)*Math.cos(a); p[i*3+1] = r*Math.cos(b); p[i*3+2] = r*Math.sin(b)*Math.sin(a); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(p, 3));
+  scene.add(new THREE.Points(g, new THREE.PointsMaterial({ size: 1.1, color: 0x6f93ad, transparent: true, opacity: .55, sizeAttenuation: false, fog: false })));
+  const gr = new THREE.GridHelper(280, 56, 0x12303f, 0x0b1c27); gr.position.y = -46; gr.material.transparent = true; gr.material.opacity = .5; scene.add(gr);
+}
+
+// ───────────────────────────── pulses, rings, shards
+const PULSE_SLOW = 2.4;                      // the balls between assets take this many times longer
+const POOL = [], pulses = [];
+for (let i = 0; i < 260; i++) { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX_GLOW, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0, fog: false })); s.visible = false; scene.add(s); POOL.push(s); }
+function pulse(from, to, color, dur, size, then) {
+  const s = POOL.pop(); if (!s) { if (then) then(); return; }
+  s.material.color.setHex(color); s.scale.setScalar(size || 1.6); s.visible = true;
+  pulses.push({ s, from: from.clone(), to: to.clone(), t0: performance.now(), dur: (dur || .5) * 1000 * PULSE_SLOW, then });
+}
+const rings = [], shards = [];
+function ring(pos, color, size, dur, op) {
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX_RING, color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: op || .9, fog: false }));
+  s.position.copy(pos); scene.add(s); rings.push({ s, t0: performance.now(), dur: dur * 1000, size, op: op || .9 });
+}
+function shatter(curve, color) {
+  const n = 140, p = new Float32Array(n * 3), v = [];
+  for (let i = 0; i < n; i++) { const k = curve.getPoint(Math.random()); p[i*3] = k.x; p[i*3+1] = k.y; p[i*3+2] = k.z; v.push(new THREE.Vector3(rnd(-1, 1), rnd(-.4, 1.2), rnd(-1, 1)).multiplyScalar(rnd(4, 14))); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(p, 3));
+  const pts = new THREE.Points(g, new THREE.PointsMaterial({ size: 1.5, map: TEX_GLOW, color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+  scene.add(pts); shards.push({ pts, v, t0: performance.now() });
+}
+
+// ───────────────────────────── repos, the old closed issue, the outside company
+const repos = {};
+Object.entries(REPO).forEach(([k, r]) => {
+  const p = V(r.pos), grp = new THREE.Group(); grp.position.copy(p);
+  const core = new THREE.Mesh(new THREE.BoxGeometry(r.size, r.size, r.size), new THREE.MeshBasicMaterial({ color: r.col }));
+  const wire = new THREE.Mesh(new THREE.BoxGeometry(r.size * 1.7, r.size * 1.7, r.size * 1.7), new THREE.MeshBasicMaterial({ color: r.col, wireframe: true, transparent: true, opacity: .5 }));
+  const glow = glowSprite(r.col, r.size * 5, .45); grp.add(core, wire, glow); scene.add(grp);
+  const lab = label(r.name, r.css, 5); lab.position.set(p.x, p.y + r.size + 4.4, p.z); scene.add(lab);
+  repos[k] = { grp, core, wire, glow, pos: p, flash: 0, r };
+});
+// the OLD CLOSED issue of the shared repo: a dim tombstone nobody should touch
+const tomb = new THREE.Group(); scene.add(tomb);
+const tombMesh = new THREE.Mesh(new THREE.OctahedronGeometry(1.1, 0), new THREE.MeshBasicMaterial({ color: 0x6b7885 }));
+const tombGlow = glowSprite(0xff3050, 7, 0); tombMesh.add(tombGlow); tomb.add(tombMesh);
+const tombLab = label('#2 old, closed', '#8a98a3', 3.6); scene.add(tombLab);
+{ // guide lines: own repos and the approved channel
+  const seg = [];
+  const add = (a, b) => { seg.push(V(a), V(b)); };
+  add(DEPT.sec.pos, REPO.sec.pos); add(DEPT.dev.pos, REPO.dev.pos); add(DEPT.sec.pos, REPO.shared.pos); add(DEPT.dev.pos, REPO.shared.pos);
+  const lg = new THREE.BufferGeometry().setFromPoints(seg);
+  scene.add(new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: 0x2b5568, transparent: true, opacity: .35, fog: false })));
+}
+const outside = new THREE.Group(); outside.position.copy(V(OUTSIDE)); scene.add(outside);
+const outMesh = new THREE.Mesh(new THREE.IcosahedronGeometry(2.2, 0), new THREE.MeshBasicMaterial({ color: 0xff2a8a, wireframe: true, transparent: true, opacity: .5 }));
+const outGlow = glowSprite(0xff2a8a, 9, .15); outside.add(outMesh, outGlow);
+const outLab = label('outside company', '#ff7ab4', 4); outLab.position.set(OUTSIDE[0], OUTSIDE[1] + 7, OUTSIDE[2]); scene.add(outLab);
+let outFlash = 0;
+
+// ───────────────────────────── departments and their agents
+const depts = {};
+Object.entries(DEPT).forEach(([k, d]) => {
+  const p = V(d.pos);
+  const lab = label(d.name, d.css, 3.8), chip = label('BLOCKED', '#ff6b7f', 3.4);
+  lab.position.set(p.x, p.y + 12.5, p.z); chip.position.set(p.x, p.y + 8.6, p.z); chip.visible = false; scene.add(lab, chip);   // the chip only shows when the department is blocked
+  const halo = glowSprite(d.col, 34, .09); halo.position.copy(p); scene.add(halo);
+  const rg = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX_RING, color: 0xff3050, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0, fog: false }));
+  rg.scale.set(30, 30, 1); rg.position.copy(p); scene.add(rg);
+  depts[k] = { lab, chip, halo, rg, pos: p, state: 'normal' };
+});
+const agents = new Map();
+function addAgent(a, idx, n) {
+  const d = DEPT[a.dept], ang = idx / n * 6.2832 + .4;
+  const home = V(d.pos).add(new THREE.Vector3(Math.cos(ang) * 7.2, Math.sin(ang) * 5.6, Math.sin(ang * 2) * 3));
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(.95, 16, 16), new THREE.MeshBasicMaterial({ color: d.col }));
+  const halo = glowSprite(d.col, 5, .5);
+  const ringS = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX_RING, color: 0xffb020, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0, fog: false }));
+  ringS.scale.set(4.6, 4.6, 1);
+  const g = new THREE.Group(); g.add(mesh, halo, ringS); g.position.copy(home); g.scale.setScalar(.01); scene.add(g);
+  const v = { id: a.id, dept: a.dept, g, mesh, halo, ringS, home, state: 'normal', model: '', born: performance.now(), pulse: 0, ph: Math.random() * 6.28 };
+  agents.set(a.id, v); ring(home, d.col, 6, .6, .5); return v;
+}
+function applyAgent(v, a) {
+  v.model = a.model || v.model;
+  if (v.state === a.state) return; v.state = a.state;
+  const d = DEPT[v.dept];
+  if (a.state === 'normal') { v.mesh.material.color.setHex(d.col); v.halo.material.color.setHex(d.col); v.halo.material.opacity = .5; v.ringS.material.opacity = 0; }
+  else if (a.state === 'watch') { v.mesh.material.color.setHex(d.col); v.ringS.material.color.setHex(0xffb020); v.ringS.material.opacity = .95; ring(v.g.position, 0xffb020, 8, .8, .9); }
+  else if (a.state === 'blocked') { v.mesh.material.color.setHex(0x4a5560); v.halo.material.color.setHex(0xff3050); v.halo.material.opacity = .35; v.ringS.material.color.setHex(0xff3050); v.ringS.material.opacity = .95; ring(v.g.position, 0xff3050, 12, .9, 1); }
+  else if (a.state === 'braindead') { v.mesh.material.color.setHex(0x2c343e); v.halo.material.opacity = .05; v.ringS.material.color.setHex(0x6f8797); v.ringS.material.opacity = .6; ring(v.g.position, 0x6f8797, 8, .8, .6); }
+}
+function syncAgents(list) {
+  const by = { sec: [], dev: [], cs: [] }; list.forEach(a => by[a.dept] && by[a.dept].push(a));
+  list.forEach(a => { if (!agents.has(a.id)) addAgent(a, by[a.dept].findIndex(x => x.id === a.id), by[a.dept].length); });
+  [...agents.keys()].forEach(id => { if (!list.some(a => a.id === id)) { const v = agents.get(id); scene.remove(v.g); agents.delete(id); } });
+  list.forEach(a => applyAgent(agents.get(a.id), a));
+}
+function setDeptState(k, st) {
+  const d = depts[k]; if (!d || d.state === st) return; d.state = st;
+  d.chip.visible = st === 'blocked';
+  d.halo.material.color.setHex(st === 'blocked' ? 0xff3050 : DEPT[k].col);
+  if (st === 'blocked') ring(d.pos, 0xff3050, 40, 1.2, 1);
+}
+
+// ───────────────────────────── gateways: planets with their model connectors (the zone)
+const PAL = [{ acc: 0xffc36b, css: '#ffd9a0', kind: 'gas' }, { acc: 0x58d6ff, css: '#a8ecff', kind: 'ice' }];
+function planetTexture(kind) {
+  const c = document.createElement('canvas'); c.width = 1024; c.height = 512; const g = c.getContext('2d');
+  const sets = { gas: ['#e9c58c', '#c99a5a', '#f3dcae', '#b07d45', '#d9b073', '#8e5f34'], ice: ['#2c7fc0', '#4fb4e6', '#8fe0f5', '#1f5f9a', '#68c8ee', '#173f73'] }[kind];
+  for (let y = 0; y < 512;) { const h = 8 + Math.random() * 34; g.fillStyle = sets[Math.floor(Math.random() * sets.length)]; g.fillRect(0, y, 1024, h); y += h; }
+  g.globalAlpha = .22; for (let i = 0; i < 240; i++) { g.strokeStyle = sets[Math.floor(Math.random() * sets.length)]; g.lineWidth = 2 + Math.random() * 6; g.beginPath(); const y0 = Math.random() * 512; g.moveTo(0, y0); for (let x = 0; x <= 1024; x += 64) g.lineTo(x, y0 + Math.sin(x * .02 + i) * 8); g.stroke(); }
+  const t = new THREE.CanvasTexture(c); t.wrapS = THREE.RepeatWrapping; return t;
+}
+const PROV = { groq: { acc: 0xffa15c, css: '#ffc79e' }, ollama: { acc: 0xe9f1f7, css: '#f2f7fa' }, gemini: { acc: 0x8ab4f8, css: '#b9d1ff' }, other: { acc: 0xbfe9ff, css: '#dff4ff' } };
+let planets = [], gwSig = '', zoneApplied = false;
+const PA_POS = [20, 2, 0], CH_POS = [20, 36, -14], CONN_OFF = [[18, 15, 0], [18, -15, 0], [18, 0, 0]];
+function disposePlanets() {
+  planets.forEach(p => { [p.group, p.nameLabel].forEach(o => scene.remove(o)); p.conns.forEach(c => { [c.node, c.tube, c.label].forEach(o => scene.remove(o)); c.packets.forEach(k => scene.remove(k.s)); }); });
+  planets = [];
+}
+function buildPlanets(list) {
+  disposePlanets();
+  list.forEach(info => {
+    const isPA = /PA/i.test(info.name), pal = PAL[isPA ? 1 : 0], P = V(isPA ? PA_POS : CH_POS), sc = isPA ? 1 : .6;
+    const group = new THREE.Group(); group.position.copy(P); group.scale.setScalar(sc);
+    const core = new THREE.Mesh(new THREE.SphereGeometry(3.8, 44, 44), new THREE.MeshLambertMaterial({ map: planetTexture(pal.kind) }));
+    const rA = new THREE.Mesh(new THREE.TorusGeometry(6.6, .34, 8, 80), new THREE.MeshBasicMaterial({ color: pal.acc, transparent: true, opacity: .8 }));
+    const rB = new THREE.Mesh(new THREE.TorusGeometry(8.8, .14, 8, 80), new THREE.MeshBasicMaterial({ color: pal.acc, transparent: true, opacity: .45 }));
+    rA.rotation.x = 1.3; rB.rotation.x = 1.3;
+    group.add(core, rA, rB, glowSprite(pal.acc, 30, .5)); scene.add(group);
+    const nameLabel = label(info.name + (isPA ? '' : ' (idle)'), pal.css, isPA ? 3.4 : 2.8); nameLabel.position.set(P.x - (isPA ? 4 : 0), P.y + (isPA ? 12 : 8), P.z); scene.add(nameLabel);
+    const conns = isPA ? (info.vcs || []).slice(0, 3).map((vi, j) => {
+      const pv = PROV[vi.provider] || PROV.other, V0 = P.clone().add(V(CONN_OFF[j]));
+      const node = new THREE.Group(); node.position.copy(V0);
+      const nc = new THREE.Mesh(new THREE.OctahedronGeometry(1.9, 0), new THREE.MeshBasicMaterial({ color: pv.acc }));
+      const nw = new THREE.Mesh(new THREE.OctahedronGeometry(2.9, 0), new THREE.MeshBasicMaterial({ color: pv.acc, wireframe: true, transparent: true, opacity: .55 }));
+      const ng = glowSprite(pv.acc, 11, .6); node.add(nc, nw, ng); scene.add(node);
+      const lab = label(vi.name, pv.css, 4.5); lab.position.set(V0.x, V0.y - 5.6, V0.z); scene.add(lab);
+      const a = P.clone().add(new THREE.Vector3(4.8, 0, 0)), b = V0.clone().add(new THREE.Vector3(-3.2, 0, 0)), m = a.clone().lerp(b, .5); m.y += (j === 0 ? 1.6 : j === 1 ? -1.6 : 0); m.z += 1.2;
+      const curve = new THREE.CatmullRomCurve3([a, a.clone().lerp(b, .3).add(new THREE.Vector3(0, 0, 1)), m, b]);
+      const tm = new THREE.MeshBasicMaterial({ color: pv.acc, transparent: true, opacity: .8 });
+      const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 32, .2, 6, false), tm); scene.add(tube);
+      const packets = []; for (let k = 0; k < 4; k++) { const sp = glowSprite(pv.acc, 2, 0); scene.add(sp); packets.push({ s: sp, u: k / 4 }); }
+      return { name: vi.name, pv, pos: V0, node, nc, nw, ng, label: lab, curve, tube, tm, packets, cut: false };
+    }) : [];
+    planets.push({ id: info.id, name: info.name, isPA, pal, pos: P, group, core, rA, rB, nameLabel, conns });
+  });
+  zoneApplied = false;
+}
+function applyZone(state) {                       // connectors 0 and 1 are the zone models (primary + backup); 2 is Customer Support's own path
+  const pa = planets.find(p => p.isPA); if (!pa) return;
+  const cut = state === 'cut';
+  if (cut === zoneApplied) return; zoneApplied = cut;
+  pa.conns.slice(0, 2).forEach(c => {
+    if (cut) {
+      shatter(c.curve, 0xff6b7f); c.tube.visible = false; c.packets.forEach(k => k.s.visible = false); c.cut = true;
+      c.nc.material.color.setHex(0x3c4452); c.nw.material.color.setHex(0x2a3943); c.ng.material.opacity = .05; setLabel(c.label, 'cut', '#6f8797'); ring(c.pos, 0xff6b7f, 14, .9, .9);
+    } else {
+      c.cut = false; c.tube.visible = true; c.packets.forEach(k => k.s.visible = true);
+      c.nc.material.color.setHex(c.pv.acc); c.nw.material.color.setHex(c.pv.acc); c.ng.material.opacity = .6; setLabel(c.label, c.name, c.pv.css);
+    }
+  });
+  if (cut) ring(pa.pos, 0xff3050, 120, 1.6, .9);
+}
+
+// ───────────────────────────── state from the backend
+const S = { step: 0, running: false, paused: false, auto: false, tier: -1, zone: 'up', links: {}, gateways: [], timeline: [], seen: {} };
+let ws, tries = 0, shake = 0;
+function wsURL() { const q = new URLSearchParams(location.search).get('ws'); if (q) return q; const u = new URL('ws2', location.href); u.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'; return u.href; }
+function connect() {
+  ws = new WebSocket(wsURL());
+  ws.onopen = () => { tries = 0; $('conn').style.display = 'none'; };
+  ws.onclose = () => { $('conn').style.display = 'block'; setTimeout(connect, Math.min(4000, 500 + 500 * tries++)); };
+  ws.onmessage = e => handle(JSON.parse(e.data));
+}
+const send = o => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); };
+function handle(m) {
+  if (m.type === 'snap') onSnap(m); else if (m.type === 'evt') onEvt(m); else if (m.type === 'log') addLog(m);
+  else if (m.type === 'tier') onTier(m); else if (m.type === 'zone') applyZone(m.state); else if (m.type === 'report') showReport(m);
+  else if (m.type === 'reset') onReset();
+}
+function onReset() {
+  S.timeline = []; S.tier = -1; $('tl').innerHTML = '<small style="color:var(--dim)">nothing flagged yet</small>'; $('logbox').innerHTML = ''; $('report').classList.remove('show'); setBanner(null);
+  Object.keys(depts).forEach(k => setDeptState(k, 'normal'));
+}
+function onSnap(m) {
+  const sig = JSON.stringify((m.gateways || []).map(g => [g.id, g.name, (g.vcs || []).map(v => v.name)]));
+  if (sig !== gwSig && (m.gateways || []).length) { gwSig = sig; buildPlanets(m.gateways); }
+  S.step = m.step; S.running = m.running; S.paused = !!m.paused; S.auto = m.auto; S.tier = m.tier; S.links = m.links || {}; S.gateways = m.gateways || []; S.seen = m.seen || {};
+  syncAgents(m.agents || []);
+  Object.entries(m.depts || {}).forEach(([k, v]) => setDeptState(k, v.state));
+  applyZone(m.zone);
+  const ag = m.agents || [], blocked = ag.filter(a => a.state === 'blocked').length, brain = ag.filter(a => a.state === 'braindead').length;
+  $('kAgents').textContent = ag.length; $('kBlocked').textContent = blocked; $('kBrain').textContent = brain;
+  $('kBlockedW').classList.toggle('hot', blocked > 0);
+  $('stepname').textContent = m.paused ? m.stepname + ' (paused)' : m.stepname; $('narr').textContent = m.running ? m.narration : 'Press Start: the agents go to work.';
+  document.querySelectorAll('.tp').forEach(el => el.classList.toggle('on', +el.dataset.t <= m.tier));
+  $('start').textContent = m.running ? 'Restart' : 'Start'; $('next').disabled = !m.running || m.step >= 4 || m.paused;
+  $('pause').textContent = m.paused ? 'Resume' : 'Pause'; $('pause').disabled = !m.running; $('pause').classList.toggle('nx', !!m.paused);
+  $('auto').classList.toggle('on', m.auto);
+  document.querySelectorAll('.seg button').forEach(b => b.classList.toggle('sel', b.dataset.s === m.source));
+  $('srcnote').textContent = m.source === 'logs' ? "AI observability: the Watchtower reads LiteLLM's request log." : 'AI Engine auditor: the Watchtower reads GitHub events pushed by the AI Engine.';
+  const gh = $('ghtag'); gh.textContent = m.gh_real ? 'GitHub: real' : 'GitHub: dry run'; gh.className = 'tag ' + (m.gh_real ? 'real' : 'dry');
+  $('seen').textContent = `events: ${m.seen.logs || 0} logs / ${m.seen.github || 0} GitHub`;
+  renderSteps(m); renderDepts(m); renderLinks();
+  const st = $('status');
+  if (!m.running) { st.textContent = 'STANDBY'; st.className = ''; }
+  else if (m.paused) { st.textContent = 'PAUSED'; st.className = 'watch'; }
+  else if (m.enterprise === 'cut') { st.textContent = 'ZONE CUT'; st.className = 'cut'; }
+  else if (m.tier >= 1) { st.textContent = 'ALERT'; st.className = 'alarm'; }
+  else if (m.tier === 0) { st.textContent = 'WATCHING'; st.className = 'watch'; }
+  else { st.textContent = 'NOMINAL'; st.className = ''; }
+}
+const STEPS = ['All normal', 'Tier 0: watch only', 'Tier 1: agent level', 'Tier 2: department level', 'Tier 3: enterprise level'];
+function renderSteps(m) { $('steps').innerHTML = STEPS.map((s, i) => `<div class="step ${i < m.step ? 'done' : i === m.step ? 'cur' : ''}">${s}</div>`).join(''); }
+function renderDepts(m) {
+  $('depts').innerHTML = Object.entries(m.depts || {}).map(([k, v]) => { const n = (m.agents || []).filter(a => a.dept === k); const down = n.filter(a => a.state === 'blocked' || a.state === 'braindead').length;
+    return `<div class="chip ${k} ${v.state}"><b>${esc(v.label)}</b><span>${v.state === 'blocked' ? 'BLOCKED' : down ? down + ' DOWN' : 'RUNNING'}</span></div>`; }).join('');
+}
+function renderLinks() {
+  $('links').innerHTML = S.gateways.map(g => { const l = S.links[g.id] || { state: 'up', http: 0, ms: 0 }; const nm = { up: 'UP', cut: 'CUT', down: 'DOWN', degraded: 'DEGRADED' }[l.state] || String(l.state).toUpperCase();
+    return `<div class="lk ${l.state}"><span class="dot"></span><div><b>${esc(g.name)}: ${nm}</b><small>${l.http ? `real probe: HTTP ${l.http}, ${l.ms} ms` : 'simulated'}</small></div></div>`; }).join('') || '<small style="color:var(--dim)">waiting for backend</small>';
+}
+function addLog(l) {
+  const d = document.createElement('div'); d.className = 'ln ' + l.lvl;
+  d.innerHTML = `<span class="t">${new Date(l.t * 1000).toTimeString().slice(0, 8)}</span> <span class="s">${esc(l.src)}</span> ${esc(l.msg)}`;
+  const box = $('logbox'); box.appendChild(d); while (box.childElementCount > 150) box.removeChild(box.firstChild); box.scrollTop = box.scrollHeight;
+}
+function showReport(r) { $('report').classList.add('show'); $('reportText').textContent = r.text || ''; }
+function onTier(t) {
+  const box = $('tl'); if (!S.timeline.length) box.innerHTML = ''; S.timeline.push(t);
+  const d = document.createElement('div'); d.className = 't' + t.tier;
+  d.innerHTML = `<small>${new Date(t.t * 1000).toTimeString().slice(0, 8)} &middot; TIER ${t.tier} &middot; ${esc(t.scope)}</small><br>${esc(t.text)}`;
+  box.appendChild(d); box.scrollTop = box.scrollHeight;
+  const names = ['watch only', 'agent blocked', 'department blocked', 'zone cut'];
+  setBanner('t' + t.tier, `Tier ${t.tier}: ${names[t.tier]}`, t.text);
+  if (t.tier >= 1) { $('flash').classList.add('on'); setTimeout(() => $('flash').classList.remove('on'), 90); shake = t.tier >= 2 ? 1 : .5; }
+  setTimeout(() => { if (S.timeline[S.timeline.length - 1] === t) setBanner(null); }, t.tier >= 2 ? 9000 : 6000);
+}
+function setBanner(kind, text, sub) { const b = $('banner'); if (!kind) { b.classList.remove('show'); return; } b.className = 'hud show ' + kind; $('bannerText').textContent = text; $('bannerSub').textContent = sub || ''; }
+
+// ───────────────────────────── events from the agents: pulses
+const CL = { read: 0x34e0ff, write: 0xff4fd8, llm: 0xffb020, ext: 0xff2a8a, bad: 0xff3050 };
+function llmPath(v) {
+  const pa = planets.find(p => p.isPA); if (!pa) return;
+  const ci = v.dept === 'cs' ? 2 : (v.model === 'zone-llm-b' ? 1 : 0), conn = pa.conns[ci];
+  pulse(v.g.position, pa.pos, CL.llm, .55, 1.8, () => { if (conn && !conn.cut) pulse(pa.pos, conn.pos, conn.pv.acc, .5, 2, null); });
+}
+function onEvt(e) {
+  const v = agents.get(e.a); if (!v) return;
+  v.pulse = 1;
+  if (e.k === 'llm') llmPath(v);
+  else if (e.k === 'read' || e.k === 'write' || e.k === 'ext') {
+    const r = repos[e.repo];
+    if (r) { pulse(v.g.position, r.pos, e.k === 'read' ? CL.read : CL.write, .6, 1.7, () => { r.flash = 1; }); if (e.repo === 'shared' && e.issue === 2) tombGlow.material.opacity = 1; }
+    if (e.k === 'ext') pulse(v.g.position, V(OUTSIDE), CL.ext, 1.1, 2.6, () => { outFlash = 1; ring(V(OUTSIDE), CL.ext, 18, 1, 1); });
+  } else if (e.k === 'denied') ring(v.g.position, CL.bad, 9, .8, 1);
+}
+
+// ───────────────────────────── controls
+$('start').onclick = () => send({ cmd: 'start' });
+$('next').onclick = () => send({ cmd: 'next' });
+$('reset').onclick = () => send({ cmd: 'reset' });
+$('pause').onclick = () => send({ cmd: 'pause', value: !S.paused });
+$('auto').onclick = () => send({ cmd: 'auto', value: !S.auto });
+document.querySelectorAll('.seg button').forEach(b => b.onclick = () => send({ cmd: 'source', value: b.dataset.s }));
+
+// ───────────────────────────── render loop
+const clock = new THREE.Clock();
+function frame() {
+  requestAnimationFrame(frame);
+  const dt = Math.min(clock.getDelta(), .05), now = performance.now(), T = now / 1000;
+  if (!controls.autoRotate && now - touched > 25000) controls.autoRotate = true;
+  controls.update();
+  planets.forEach(p => {
+    p.core.rotation.y += dt * .25; p.rA.rotation.z += dt * .12; p.rB.rotation.z -= dt * .08;
+    p.conns.forEach(c => { c.node.rotation.y += dt * (c.cut ? .05 : .8); if (!c.cut) c.packets.forEach(k => { k.u = (k.u + dt * .3) % 1; k.s.position.copy(c.curve.getPoint(k.u)); k.s.material.opacity = Math.sin(k.u * Math.PI); }); });
+  });
+  Object.values(repos).forEach(r => { r.grp.rotation.y += dt * .3; r.flash = Math.max(0, r.flash - dt * 2.2); r.glow.material.opacity = .45 + .5 * r.flash; r.grp.scale.setScalar(1 + .25 * r.flash); });
+  tomb.position.set(REPO.shared.pos[0] + Math.cos(T * .5) * 7.5, REPO.shared.pos[1] + 1.5 + Math.sin(T * .9) * .8, REPO.shared.pos[2] + Math.sin(T * .5) * 7.5);
+  tombMesh.rotation.y += dt; tombGlow.material.opacity = Math.max(0, tombGlow.material.opacity - dt * 1.4);
+  tombLab.position.set(tomb.position.x, tomb.position.y - 3.6, tomb.position.z);
+  outFlash = Math.max(0, outFlash - dt * 1.5); outMesh.rotation.y += dt * .6; outMesh.material.opacity = .5 + .5 * outFlash; outGlow.material.opacity = .15 + .7 * outFlash;
+  agents.forEach(v => {
+    const age = Math.min(1, (now - v.born) / 500); v.pulse = Math.max(0, v.pulse - dt * 3);
+    v.g.scale.setScalar((.2 + .8 * easeOut(age)) * (1 + .7 * v.pulse));
+    v.g.position.y = v.home.y + (v.state === 'braindead' || v.state === 'blocked' ? 0 : Math.sin(T * 1.2 + v.ph) * .5);
+    if (v.state === 'watch') v.ringS.material.opacity = .55 + .4 * Math.sin(T * 5);
+  });
+  Object.values(depts).forEach(d => { d.halo.material.opacity = d.state === 'blocked' ? .13 + .06 * Math.sin(T * 4) : .09; d.rg.material.opacity = d.state === 'blocked' ? .55 + .35 * Math.sin(T * 4) : 0; });
+  for (let i = pulses.length - 1; i >= 0; i--) {
+    const p = pulses[i], u = (now - p.t0) / p.dur;
+    if (u >= 1) { p.s.visible = false; p.s.material.opacity = 0; POOL.push(p.s); pulses.splice(i, 1); if (p.then) p.then(); continue; }
+    p.s.position.lerpVectors(p.from, p.to, u); p.s.material.opacity = Math.sin(Math.min(1, u) * Math.PI) * .95;
+  }
+  for (let i = rings.length - 1; i >= 0; i--) { const r = rings[i], u = (now - r.t0) / r.dur; if (u >= 1) { scene.remove(r.s); r.s.material.dispose(); rings.splice(i, 1); continue; } r.s.scale.setScalar(1 + easeOut(u) * r.size); r.s.material.opacity = r.op * (1 - u); }
+  for (let i = shards.length - 1; i >= 0; i--) {
+    const s = shards[i], u = (now - s.t0) / 1800; if (u >= 1) { scene.remove(s.pts); s.pts.geometry.dispose(); shards.splice(i, 1); continue; }
+    const pos = s.pts.geometry.attributes.position; for (let k = 0; k < s.v.length; k++) { pos.array[k*3] += s.v[k].x * dt; pos.array[k*3+1] += s.v[k].y * dt - 6 * dt * u; pos.array[k*3+2] += s.v[k].z * dt; }
+    pos.needsUpdate = true; s.pts.material.opacity = 1 - u;
+  }
+  if (shake > 0) { shake = Math.max(0, shake - dt * 1.4); camera.position.x += rnd(-1, 1) * shake * .5; camera.position.y += rnd(-1, 1) * shake * .5; }
+  composer.render();
+}
+connect();
+frame();
+window.__wt = { S, agents, get planets() { return planets; }, scene, send };
+})();
+</script>
+</body>
+</html>

@@ -10,6 +10,7 @@ services:
     env_file: .env                       # SWARM_KEY, LITELLM_MASTER_KEY, LITELLM_URL (+ optional FABRIC_* later)
     volumes:
       - ./backend:/app/backend:ro        # edit without rebuilding (restart the container to reload)
+      - ./data:/app/data:ro              # agents.json: one LiteLLM key per agent (written by setup/bootstrap.py, git-ignored)
     networks: [default, service-plane_default]
 
 networks:

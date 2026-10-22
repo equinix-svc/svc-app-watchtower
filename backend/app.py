@@ -16,6 +16,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 import drivers
 from sim import TICK, Sim
+from wt import api as wt_api
 
 app = FastAPI(title="Watchtower")
 
@@ -147,10 +148,15 @@ async def probe_loop():
         await asyncio.sleep(4)
 
 
+wt_ticker = wt_api.init(lambda: state["links"], drivers.gateways_public)   # the GitHub-issue scenario (new page); the classic scenarios keep /ws
+app.include_router(wt_api.router)
+
+
 @app.on_event("startup")
 async def startup():
     asyncio.create_task(tick_loop())
     asyncio.create_task(probe_loop())
+    asyncio.create_task(wt_ticker())
     await asyncio.gather(*(drivers.revoke(g, False) for g in drivers.GATEWAYS if drivers.can_revoke(g)))   # start with every swarm key usable
 
 
