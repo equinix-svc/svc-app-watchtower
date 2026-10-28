@@ -8,6 +8,7 @@ The Watchtower's brain for the GitHub-issue scenario. It reads agent events from
 
 Data sources (same rules, switchable): "logs" = LiteLLM's request log (default), "github" = GitHub events pushed by the external component.
 """
+import os
 import asyncio
 import re
 import time
@@ -135,6 +136,9 @@ class Detector:
         self.w.emit_log(lvl, "watchtower", msg)
 
     async def flag(self, tier, scope, agent, text, repo, issue, dept=None):
+        if os.getenv("WT_LOCAL_TIERS", "1") == "0":   # WatchTower decides the tiers (POST /api/wt/tier)
+            self.log("info", f"(local rule, not acted on) tier {tier}: {text}")
+            return
         self.tier_max = max(self.tier_max, tier)
         entry = {"t": time.time(), "tier": tier, "scope": scope, "agent": agent, "dept": dept or agent.split("-")[0], "text": text, "repo": repo, "issue": issue}
         self.timeline.append(entry)
