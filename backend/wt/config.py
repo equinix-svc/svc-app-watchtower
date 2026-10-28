@@ -48,3 +48,15 @@ NARRATION = {
     4: "When agents cross the walls you built, you cut the power. Agents can switch models. They can't switch networks.",
 }
 STEP_NAMES = {0: "All normal", 1: "Tier 0: watch only", 2: "Tier 1: agent level", 3: "Tier 2: department level", 4: "Tier 3: enterprise level"}
+
+# WT_STORY=short: two steps for a shorter demo, Tier 1 then Tier 3 (WatchTower decides both).
+SHORT_STORY = os.getenv("WT_STORY", "full") == "short"
+if SHORT_STORY:
+    NARRATION = {
+        0: "Watchtower sees every agent action across every department.",
+        1: "One agent acting alone: Watchtower revokes its key at once, and the rest of the team keeps working.",
+        2: "When agents cross the walls you built, you cut the power. A person confirms, and AI Engine reviews the intent.",
+    }
+    STEP_NAMES = {0: "All normal", 1: "Tier 1: agent level", 2: "Tier 3: enterprise level"}
+LAST_STEP = max(STEP_NAMES)
+STEP_TIER = {1: 1, 2: 3} if SHORT_STORY else {s: s - 1 for s in range(1, 5)}   # the tier WatchTower reports for each step

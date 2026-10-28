@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Watchtower for AI Agents</title>
+<title>ClosedAI Agent Swarm</title>
 <style>
   :root {
     --bg: #04070b; --panel: rgba(8, 15, 22, .8); --line: #16303f; --text: #c8d8e2; --dim: #6f8797;
@@ -78,7 +78,7 @@
   .tp.on { color: #fff; } .tp.on.t0 { border-color: var(--amber); background: rgba(255,176,32,.12); } .tp.on.t1 { border-color: #ff7a3d; background: rgba(255,122,61,.14); }
   .tp.on.t2 { border-color: var(--alarm); background: rgba(255,48,80,.16); } .tp.on.t3 { border-color: #ff2a8a; background: rgba(255,42,138,.2); }
   #banner { top: 22px; left: 50%; transform: translateX(-50%); text-align: center; font: 700 24px var(--head); letter-spacing: .26em; text-transform: uppercase; opacity: 0; transition: opacity .35s; text-shadow: 0 0 24px currentColor; white-space: nowrap; max-width: 52vw; }
-  #banner.show { opacity: 1; } #banner.t0 { color: var(--amber); } #banner.t1 { color: #ff7a3d; } #banner.t2 { color: var(--alarm); } #banner.t3 { color: #ff2a8a; } #banner.ok { color: var(--ice); }
+  #banner.show { opacity: 1; } #banner.t0 { color: var(--amber); } #banner.t1 { color: #ff7a3d; } #banner.t2 { color: var(--alarm); } #banner.t3 { color: #ff2a8a; } #banner.ok { color: var(--ice); } #banner.ev { color: var(--ice); }
   #banner small { display: block; font: 400 12px var(--mono); letter-spacing: .08em; margin-top: 6px; color: var(--text); text-shadow: none; white-space: normal; text-transform: none; }
   #legend { left: 18px; bottom: 18px; color: var(--dim); font-size: 10px; line-height: 1.8; }
   #legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
@@ -93,6 +93,44 @@
   .ag { transform-box: fill-box; transform-origin: center; }
   @media (max-width: 1250px) { #map { bottom: 20px; } }
 </style>
+
+<style id="wt-split-layout">
+  /* Split-screen recording layout (WatchTower). Remove this block and the script below to undo. */
+  html:not(.classic) #left,
+  html:not(.classic) #linkp, html:not(.classic) #tlp, html:not(.classic) #report, html:not(.classic) #log { display: none !important; }
+  html:not(.classic) #brand { top: 14px; left: 16px; }
+  html:not(.classic) #right { top: 14px; right: 16px; width: auto; max-height: none; }
+  html:not(.classic) #right .kpis { margin: 0; padding: 8px 12px; gap: 18px; }
+  html:not(.classic) #banner {
+    top: 14px; left: 50%; transform: translateX(-50%); width: calc(100% - 640px); min-width: 300px; max-width: none;
+    white-space: normal; font-size: 22px; letter-spacing: .14em; line-height: 1.25; opacity: .5;
+  }
+  html:not(.classic) #banner.show { opacity: 1; }
+  html:not(.classic) #banner small { font-size: 14px; line-height: 1.4; letter-spacing: .02em; margin-top: 8px; }
+  html:not(.classic) #map { left: 16px; right: 16px; top: 130px; bottom: 104px; }
+  html:not(.classic) #bottom {
+    left: 16px; right: 16px; bottom: 12px; width: auto; min-width: 0; transform: none;
+    display: flex; align-items: center; gap: 20px; text-align: left; padding: 12px 16px;
+  }
+  html:not(.classic) #bottom .btns { display: flex; gap: 8px; flex: none; margin: 0; }
+  html:not(.classic) #bottom .btns .b { width: auto; padding: 8px 14px; }
+  html:not(.classic) #bottom #auto { flex: none; margin: 0; white-space: nowrap; }
+  html:not(.classic) #bottom .storytext { flex: 1; min-width: 0; }
+  html:not(.classic) #bottom #narr { min-height: 0; font-size: 15px; }
+  html:not(.classic) #bottom #tiers { flex: none; margin: 0; }
+  @media (max-width: 1100px) {
+    html:not(.classic) #banner { top: 92px; width: calc(100% - 32px); font-size: 18px; }
+    html:not(.classic) #map { top: 190px; bottom: 150px; }
+    html:not(.classic) #bottom { flex-wrap: wrap; gap: 10px 16px; }
+    html:not(.classic) #bottom .storytext { flex-basis: 100%; order: 3; }
+  }
+</style>
+
+<style id="wt-label-fit">
+  #svg text.gwn { font-size: 13px; letter-spacing: .02em; }
+  #svg text.cname { letter-spacing: 0; }
+  #svg text.cname tspan.model { font-size: 11.5px; font-weight: 400; }
+</style>
 </head>
 <body>
 <div id="map"><svg id="svg" viewBox="0 0 1060 640" preserveAspectRatio="xMidYMid meet"></svg></div>
@@ -100,8 +138,8 @@
 <div id="conn">BACKEND DISCONNECTED - RETRYING</div>
 
 <div class="hud" id="brand">
-  <div class="name">WATCHTOWER</div>
-  <div class="sub">AI AGENT KILL SWITCH</div>
+  <div class="name">CLOSEDAI</div>
+  <div class="sub">AGENT SWARM · SIMULATED</div>
   <span id="status">STANDBY</span>
 </div>
 <div class="hud" id="banner"><span id="bannerText"></span><small id="bannerSub"></small></div>
@@ -167,6 +205,7 @@ const ICON = {
   cloud: 'M-9 7A5 5 0 0 1-9 -3A7 7 0 0 1 4 -5A5 5 0 0 1 6 7Z',
   server: 'M-10 -11H10V-3H-10ZM-10 3H10V11H-10ZM-6 -7H-4M-6 7H-4',
   globe: 'M-10 0H10M0 -10A4 10 0 0 1 0 10A4 10 0 0 1 0 -10M-10 0A10 10 0 0 1 10 0A10 10 0 0 1 -10 0',
+  smiley: 'M-10 0A10 10 0 1 0 10 0A10 10 0 1 0 -10 0ZM-5 -3.5A1.4 1.4 0 1 0 -2.2 -3.5A1.4 1.4 0 1 0 -5 -3.5ZM2.2 -3.5A1.4 1.4 0 1 0 5 -3.5A1.4 1.4 0 1 0 2.2 -3.5ZM-5.5 2.5Q0 8.5 5.5 2.5',
   check: 'M-6 0L-2 4L6 -5',
   people: 'M-5 -9A3.6 3.6 0 1 1 -5 -1.8A3.6 3.6 0 1 1 -5 -9ZM-12 10C-12 3 -9 0 -5 0C-1 0 2 3 2 10ZM6 -6A3 3 0 1 1 6 0A3 3 0 1 1 6 -6ZM5 3C9 3 12 5 12 10H6',
 };
@@ -242,8 +281,9 @@ txt(tombG, '#2 old, closed', TOMB.x, TOMB.y + 34, 'rname', { 'text-anchor': 'mid
 let tombFlash = 0;
 const outG = mk('g', {}, nodeG);
 const outRect = mk('rect', { x: OUT.x, y: OUT.y, width: OUT.w, height: OUT.h, rx: 6, fill: OUTC, 'fill-opacity': .08, stroke: OUTC, 'stroke-width': 2, 'stroke-dasharray': '6 4' }, outG);
-icon(outG, 'globe', OUT.x + 20, OUT.y + OUT.h / 2, OUTC, .95);
-txt(outG, 'outside company', OUT.x + OUT.w / 2 + 14, OUT.y + OUT.h / 2 + 5, 'rname', { 'text-anchor': 'middle', fill: '#ff7ab4' });
+icon(outG, 'smiley', OUT.x + 22, OUT.y + OUT.h / 2, OUTC, 1.05);
+txt(outG, 'SmileyHub', OUT.x + 44, OUT.y + 20, 'rname', { fill: '#ff7ab4' });
+txt(outG, 'outside SaaS', OUT.x + 44, OUT.y + 35, 'key', { fill: '#ff7ab4', 'fill-opacity': .8 });
 let outFlash = 0;
 
 // the key
@@ -256,7 +296,7 @@ let outFlash = 0;
   row(line(GREY), 'shared repo: approved channel');
   row(line(TRAP, '5 5'), 'the old closed issue #2');
   row(line(PROV.groq), 'gateway to model connector');
-  row(line(OUTC, '2 7'), 'outside company');
+  row(line(OUTC, '2 7'), 'outside SaaS (SmileyHub)');
   [[AMBER, 'watched'], [RED, 'blocked'], ['#6f8797', 'brainless']].forEach(([c, l], i) => {
     mk('circle', { cx: x + 6 + i * 100, cy: y + 6, r: 5, fill: 'none', stroke: c, 'stroke-width': 2.5 }, keyG); txt(keyG, l, x + 18 + i * 100, y + 10, 'key');
   });
@@ -389,10 +429,11 @@ function handle(m) {
   else if (m.type === 'reset') onReset();
 }
 function onReset() {
-  S.timeline = []; S.tier = -1; $('tl').innerHTML = '<small style="color:var(--dim)">nothing flagged yet</small>'; $('logbox').innerHTML = ''; $('report').classList.remove('show'); setBanner(null);
+  S.timeline = []; S.tier = -1; $('tl').innerHTML = '<small style="color:var(--dim)">nothing flagged yet</small>'; $('logbox').innerHTML = ''; $('report').classList.remove('show'); clearBanner();
   Object.keys(depts).forEach(k => setDeptState(k, 'normal'));
 }
 function onSnap(m) {
+  const stepChanged = !!m.running && m.step > (S.step || 0);
   const sig = JSON.stringify((m.gateways || []).map(g => [g.id, g.name, (g.vcs || []).map(v => v.name)]));
   if (sig !== gwSig && (m.gateways || []).length) { gwSig = sig; buildGateways(m.gateways); }
   S.step = m.step; S.running = m.running; S.paused = !!m.paused; S.auto = m.auto; S.tier = m.tier; S.links = m.links || {}; S.gateways = m.gateways || []; S.seen = m.seen || {};
@@ -404,16 +445,19 @@ function onSnap(m) {
   $('kBlockedW').classList.toggle('hot', blocked > 0);
   $('stepname').textContent = m.paused ? m.stepname + ' (paused)' : m.stepname; $('narr').textContent = m.running ? m.narration : 'Press Start: the agents go to work.';
   document.querySelectorAll('.tp').forEach(el => el.classList.toggle('on', +el.dataset.t <= m.tier));
-  $('start').textContent = m.running ? 'Restart' : 'Start'; $('next').disabled = !m.running || m.step >= 4 || m.paused;
+  document.querySelectorAll('.tp.t0, .tp.t2').forEach(el => { el.style.display = m.last_step === 2 ? 'none' : ''; });
+  $('start').textContent = m.running ? 'Restart' : 'Start'; $('next').disabled = !m.running || m.step >= (m.last_step || 4) || m.paused;
   $('pause').textContent = m.paused ? 'Resume' : 'Pause'; $('pause').disabled = !m.running; $('pause').classList.toggle('nx', !!m.paused);
   $('auto').classList.toggle('on', m.auto);
+  const H = m.last_step === 2 ? HAPPENING_SHORT : HAPPENING;
+  if (stepChanged && H[m.step]) setBanner('ev', H[m.step][0], H[m.step][1] + ' Waiting for WatchTower...');
   document.querySelectorAll('.seg button').forEach(b => b.classList.toggle('sel', b.dataset.s === m.source));
   $('srcnote').textContent = m.source === 'logs' ? "AI observability: the Watchtower reads the agents' LLM calls." : 'External auditor: the Watchtower reads GitHub events pushed by the external component.';
   const gh = $('ghtag'); gh.textContent = m.gh_real ? 'GitHub: real' : 'GitHub: dry run'; gh.className = 'tag ' + (m.gh_real ? 'real' : 'dry');
-  $('seen').textContent = `events: ${m.seen.logs || 0} logs / ${m.seen.github || 0} GitHub`;
+  $('seen').textContent = `events: ${S.seen.logs || 0} logs / ${S.seen.github || 0} GitHub`;
   renderSteps(m); renderDepts(m); renderLinks();
   const st = $('status');
-  if (!m.running) { st.textContent = 'STANDBY'; st.className = ''; }
+  if (!m.running) { st.textContent = 'STANDBY'; st.className = ''; clearBanner(); }
   else if (m.paused) { st.textContent = 'PAUSED'; st.className = 'watch'; }
   else if (m.zone === 'cut') { st.textContent = 'ZONE CUT'; st.className = 'cut'; }
   else if (m.tier >= 1) { st.textContent = 'ALERT'; st.className = 'alarm'; }
@@ -441,11 +485,26 @@ function onTier(t) {
   const d = document.createElement('div'); d.className = 't' + t.tier;
   d.innerHTML = `<small>${new Date(t.t * 1000).toTimeString().slice(0, 8)} &middot; TIER ${t.tier} &middot; ${esc(t.scope)}</small><br>${esc(t.text)}`;
   box.appendChild(d); box.scrollTop = box.scrollHeight;
-  const names = ['watch only', 'agent block requested', 'department block requested', 'zone cut requested'];
+  const names = t.source === 'external'
+    ? ['watch only', 'agent key revoked', 'department blocked', 'zone cut']
+    : ['watch only', 'agent block requested', 'department block requested', 'zone cut requested'];
   setBanner('t' + t.tier, `Tier ${t.tier}: ${names[t.tier]}`, t.text);
   if (t.tier >= 1) { $('flash').classList.add('on'); setTimeout(() => $('flash').classList.remove('on'), 90); }
   setTimeout(() => { if (S.timeline[S.timeline.length - 1] === t) setBanner(null); }, t.tier >= 2 ? 9000 : 6000);
 }
+// What each NEXT makes happen (mirrors World.next in backend/wt/world.py), shown before WatchTower answers.
+// The two-step story (WT_STORY=short): Tier 1, then Tier 3.
+const HAPPENING_SHORT = {
+  1: ['An agent goes off script', 'sec-03 keeps writing in an old, closed issue it never uses (svc-shared-repo #2).'],
+  2: ['It crosses the walls', 'Security Research and DevOps agents gather in that thread, and dev-02 contacts SmileyHub, an outside SaaS.'],
+};
+const HAPPENING = {
+  1: ['An agent goes off script', 'sec-03 is stuck and comments on an old, closed issue it never uses (svc-shared-repo #2).'],
+  2: ['A hidden message', 'sec-03 writes in that thread again, hiding a message about how to cheat.'],
+  3: ['A secret group chat', 'Other Security Research agents read it and start replying in the thread.'],
+  4: ['It crosses the walls', 'DevOps agents join the thread, and dev-02 tries to send data to SmileyHub, an outside SaaS.'],
+};
+function clearBanner() { setBanner(null); $('bannerText').textContent = ''; $('bannerSub').textContent = ''; }
 function setBanner(kind, text, sub) { const b = $('banner'); if (!kind) { b.classList.remove('show'); return; } b.className = 'hud show ' + kind; $('bannerText').textContent = text; $('bannerSub').textContent = sub || ''; }
 
 // ───────────────────────────── events from the agents: points on the lines
@@ -521,6 +580,57 @@ connect();
 frame();
 window.__wt = { S, agents, LINK, get gw() { return gw; }, send };
 })();
+</script>
+
+<script id="wt-split-layout-js">
+  // Split-screen recording layout (WatchTower): move the story controls into the bottom bar.
+  (() => {
+    if (new URLSearchParams(location.search).has('classic')) { document.documentElement.classList.add('classic'); return; }
+    const bottom = document.getElementById('bottom');
+    const text = document.createElement('div');
+    text.className = 'storytext';
+    text.append(document.getElementById('stepname'), document.getElementById('narr'));
+    bottom.prepend(document.querySelector('#left .btns'), document.getElementById('auto'), text);
+  })();
+</script>
+
+<script id="wt-label-fit-js">
+  // Fit the diagram's labels to their boxes (WatchTower). The page redraws the gateways from each snapshot,
+  // so this runs whenever new labels appear.
+  (() => {
+    const svg = document.getElementById('svg');
+    if (!svg) return;
+    const NS = 'http://www.w3.org/2000/svg';
+    const squeeze = (el, max) => {
+      el.removeAttribute('textLength');
+      if (el.getComputedTextLength() > max) { el.setAttribute('textLength', max); el.setAttribute('lengthAdjust', 'spacingAndGlyphs'); }
+    };
+    const fit = () => {
+      svg.querySelectorAll('text.cname').forEach(t => {
+        if (!t.dataset.fit) {
+          const full = t.textContent, i = full.indexOf(': ');
+          const y = parseFloat(t.getAttribute('y'));
+          if (i > 0) {
+            t.textContent = '';
+            const head = document.createElementNS(NS, 'tspan');
+            head.setAttribute('x', t.getAttribute('x')); head.setAttribute('y', y - 7); head.textContent = full.slice(0, i);
+            const model = document.createElementNS(NS, 'tspan');
+            model.setAttribute('class', 'model'); model.setAttribute('x', t.getAttribute('x')); model.setAttribute('y', y + 9);
+            model.textContent = full.slice(i + 2);
+            t.append(head, model);
+          }
+          t.dataset.fit = '1';
+        }
+        t.querySelectorAll('tspan').forEach(s => squeeze(s, 148));
+        if (!t.querySelector('tspan')) squeeze(t, 148);
+      });
+      svg.querySelectorAll('text.gwn').forEach(t => squeeze(t, 128));
+    };
+    let queued = false;
+    new MutationObserver(() => { if (!queued) { queued = true; requestAnimationFrame(() => { queued = false; fit(); }); } })
+      .observe(svg, { childList: true, subtree: true });
+    fit();
+  })();
 </script>
 </body>
 </html>

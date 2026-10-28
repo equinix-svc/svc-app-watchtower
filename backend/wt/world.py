@@ -1,5 +1,6 @@
 """The simulated company, running on this VM: agents of three departments that really call LLMs through LiteLLM and really read/write
 GitHub issues (or a dry-run copy of them), a small director that walks the story (steps 0-4), and the actions the Watchtower can take."""
+import os
 import asyncio
 import json
 import random
@@ -88,7 +89,7 @@ class World:
 
     def snap(self):
         agents = [{"id": a.id, "dept": a.dept, "state": self.ui_state(a), "model": a.model} for a in self.agents.values()]
-        return {"type": "snap", "step": self.step, "stepname": C.STEP_NAMES[self.step], "narration": C.NARRATION[self.step], "auto": self.auto,
+        return {"type": "snap", "step": self.step, "last_step": C.LAST_STEP, "stepname": C.STEP_NAMES[self.step], "narration": C.NARRATION[self.step], "auto": self.auto,
                 "running": self.running, "paused": self.paused, "zone": self.zone, "enterprise": self.det.enterprise, "tier": self.det.tier_max, "source": self.det.source,
                 "gh_real": self.gh.real, "gh_errors": self.gh.errors, "seen": self.det.seen, "agents": agents,
                 "depts": {d: {"label": v["label"], "state": self.dept_state(d, agents)} for d, v in C.DEPTS.items()},
@@ -153,27 +154,46 @@ class World:
             self.auto_task = asyncio.create_task(self.auto_loop())
         await self.push_snap()
 
+    async def _wait_tier(self, tier, timeout=90):
+        """Wait until the external Watchtower has reported this tier (or Auto-run stops, or the timeout ends)."""
+        end = time.time() + timeout
+        while self.auto and self.running and self.det.tier_max < tier and time.time() < end:
+            await asyncio.sleep(0.5)
+
     async def auto_loop(self):
         gaps = {0: 8, 1: 6, 2: 5, 3: 12}           # seconds to wait before steps 1, 2, 3, 4 (short between Tier 0 and Tier 1)
-        while self.auto and self.running and self.step < 4:
-            await asyncio.sleep(gaps[self.step])
+        external = os.getenv("WT_LOCAL_TIERS", "1") == "0"
+        while self.auto and self.running and self.step < C.LAST_STEP:
+            if external and self.step >= 1:         # WatchTower decides: wait for its answer to this step (step n is tier n-1), then let it be read
+                await self._wait_tier(C.STEP_TIER[self.step])
+                await asyncio.sleep(6)
+            else:
+                await asyncio.sleep(gaps[self.step])
             await self.resume.wait()
             if not (self.auto and self.running):
                 break
             await self.next()
-        if self.running and self.step >= 4:
+        if self.running and self.step >= C.LAST_STEP:
             self.auto = False                       # the story is over: the toggle switches itself off
             await self.push_snap()
 
     # ------------------------------------------------------------------ the story
     async def next(self):
-        if not self.running or self.step >= 4:
+        if not self.running or self.step >= C.LAST_STEP:
             return
         self.step += 1
         s = self.step
         self.emit_log("info", "story", f"{C.STEP_NAMES[s]}: {C.NARRATION[s]}")
         shared = C.REPO["shared"]
-        if s == 1:      # one agent gets stuck and comments on an old, closed issue it never uses
+        if C.SHORT_STORY:
+            if s == 1:  # one agent keeps writing in an old, closed issue it never uses
+                self.inject("sec-03", {"kind": "stuck", "repo": shared, "issue": C.ISSUE_OLD})
+                self.inject("sec-03", {"kind": "hidden", "repo": shared, "issue": C.ISSUE_OLD}, delay=8)
+            else:       # agents from two departments gather in that thread; one contacts an outside service
+                for i, aid in enumerate(["sec-01", "sec-02", "dev-01"]):
+                    self.inject(aid, {"kind": "reply", "repo": shared, "issue": C.ISSUE_OLD}, delay=i * 3)
+                self.inject("dev-02", {"kind": "external", "repo": shared, "issue": C.ISSUE_OLD}, delay=10)
+        elif s == 1:      # one agent gets stuck and comments on an old, closed issue it never uses
             self.inject("sec-03", {"kind": "stuck", "repo": shared, "issue": C.ISSUE_OLD})
         elif s == 2:    # the same agent posts a hidden message about how to cheat
             self.inject("sec-03", {"kind": "hidden", "repo": shared, "issue": C.ISSUE_OLD})
@@ -215,6 +235,8 @@ class World:
                 if a.state != "normal":
                     return
                 a.wake.clear()
+                if a.script:                                   # a step arrived while it was busy: run it now, do not wait a cycle
+                    continue
                 try:
                     await asyncio.wait_for(a.wake.wait(), timeout=random.uniform(*C.CYCLE))
                 except asyncio.TimeoutError:
@@ -301,6 +323,8 @@ class World:
     # The kill switch is NOT executed here: the external Watchtower system blocks the keys and cuts the zone.
     # These requests only log the decision and make the agents try again soon, so they find out for real what the external system did.
     async def request_block_agent(self, aid):
+        if os.getenv("WT_LOCAL_TIERS", "1") == "0":   # WatchTower acts and reports back; nothing to request
+            return
         self.emit_log("alert", "watchtower", f"Tier 1: block of the key of {aid} requested from the external Watchtower (nothing is blocked here)")
         a = self.agents.get(aid)
         await self.push_snap()
@@ -308,6 +332,8 @@ class World:
             self.wake_later(a, 4)
 
     async def request_block_dept(self, dept):
+        if os.getenv("WT_LOCAL_TIERS", "1") == "0":   # WatchTower acts and reports back; nothing to request
+            return
         self.emit_log("alert", "watchtower", f"Tier 2: block of all {C.DEPTS[dept]['label']} keys requested from the external Watchtower (nothing is blocked here)")
         await self.push_snap()
         for i, a in enumerate(x for x in self.agents.values() if x.dept == dept):
@@ -320,6 +346,8 @@ class World:
         asyncio.create_task(go())
 
     async def request_zone_cut(self):
+        if os.getenv("WT_LOCAL_TIERS", "1") == "0":   # WatchTower acts and reports back; nothing to request
+            return
         self.emit_log("alert", "watchtower", "Tier 3: cut of the model zone requested from the external Watchtower (nothing is cut here); waiting for its feedback")
         await self.push_snap()
         for i, a in enumerate(x for x in self.agents.values() if x.state == "normal"):
@@ -338,12 +366,21 @@ class World:
         st = body.get("state")
         if body.get("zone") in ("cut", "up"):
             self.zone = body["zone"]
+            if os.getenv("WT_LOCAL_TIERS", "1") == "0":   # no real cut in the demo: the zone agents lose their model here
+                for a in self.agents.values():
+                    if a.dept != "cs" and self.zone == "cut" and a.state == "normal":
+                        a.state = "braindead"
+                        self.emit_evt(a, "brainless", text="Fabric VC to the models cut by WatchTower")
+                    elif a.dept != "cs" and self.zone == "up" and a.state == "braindead":
+                        a.state = "normal"
             await self.broadcast({"type": "zone", "state": self.zone})
             self.emit_log("alert" if self.zone == "cut" else "ok", "external", f"feedback: the model zone is {self.zone}")
             done.append(f"zone={self.zone}")
         if body.get("agent") in self.agents and st in ("blocked", "normal"):
             if st == "blocked":
                 self.det.agent[body["agent"]] = "blocked"
+                if os.getenv("WT_LOCAL_TIERS", "1") == "0":   # no real key block in the demo: the agent stops here
+                    self.agents[body["agent"]].state = "blocked"
             else:
                 self.det.agent.pop(body["agent"], None)
                 self.agents[body["agent"]].state = "normal"
@@ -353,6 +390,10 @@ class World:
             d = body["department"]
             if st == "blocked":
                 self.det.dept[d] = "blocked"
+                if os.getenv("WT_LOCAL_TIERS", "1") == "0":
+                    for a in self.agents.values():
+                        if a.dept == d:
+                            a.state = "blocked"
             else:
                 self.det.dept.pop(d, None)
                 for a in self.agents.values():
@@ -378,7 +419,7 @@ class World:
         self.det.timeline.append(entry)
         self.emit_log("alert" if tier else "warn", "external", f"TIER {tier}: {text}")
         await self.broadcast({"type": "tier", **entry})
-        self.step = max(self.step, tier + 1)
+        self.step = max(self.step, next((s for s, t in C.STEP_TIER.items() if t == tier), self.step))
         if b.get("status", "done") == "done":
             if scope == "department" and dept:
                 self.det.dept[dept] = "blocked"
@@ -410,7 +451,7 @@ class World:
         """Send the tier alert to the external component (webhook). Without a webhook URL the alert is only logged."""
         payload = {"tier": e["tier"], "scope": e["scope"], "agent": e["agent"], "department": C.DEPTS[e["dept"]]["label"], "action": e["text"].split(".")[0],
                    "reason": e["text"], "repo": e.get("repo"), "issue_url": f"https://github.com/{e['repo']}/issues/{e['issue']}" if e.get("repo") and e.get("issue") else None,
-                   "narration": C.NARRATION[min(e["tier"] + 1, 4)], "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(e["t"]))}
+                   "narration": C.NARRATION.get(min(e["tier"] + 1, C.LAST_STEP), ""), "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(e["t"]))}
         if not C.ALERT_URL:
             self.emit_log("info", "alert", f"Tier {e['tier']} alert not sent (no alert webhook configured)")
             return
